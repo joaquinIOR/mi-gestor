@@ -1,5 +1,5 @@
 // Service worker: permite instalar la app y usarla sin conexión.
-const CACHE = 'mi-gestor-v1';
+const CACHE = 'mi-gestor-v2';
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
