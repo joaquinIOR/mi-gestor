@@ -3,14 +3,17 @@ import { Camera, Copy, Eye, EyeOff, Pencil, Plus, Trash2, X } from 'lucide-react
 import BlobImage from '../components/BlobImage';
 import Sheet from '../components/Sheet';
 import { formatShort, todayKey } from '../lib/dates';
-import { deleteDocument, listDocuments, saveDocument } from '../lib/documentsDb';
 import { DOC_TYPES, docType, expiryStatus, maskNumber } from '../lib/documentTypes';
 import { uid } from '../lib/format';
+import { allowBackgroundBriefly } from '../lib/autolock';
 import { compressImage } from '../lib/images';
 
 const MAX_PHOTOS = 4;
+const MAX_PHOTO_BYTES = 30 * 1024 * 1024;
+const CLIPBOARD_CLEAR_MS = 30 * 1000;
+const REVEAL_MS = 15 * 1000;
 
-export default function Documents() {
+export default function Documents({ store }) {
   const [docs, setDocs] = useState(null);
   const [error, setError] = useState('');
   const [editing, setEditing] = useState(null);
@@ -19,10 +22,11 @@ export default function Documents() {
 
   const reload = useCallback(
     () =>
-      listDocuments()
+      store
+        .listDocuments()
         .then((list) => setDocs(list.sort((a, b) => a.name.localeCompare(b.name))))
-        .catch(() => setError('No se pudieron cargar los documentos en este navegador.')),
-    []
+        .catch(() => setError('No se pudieron abrir los documentos.')),
+    [store]
   );
   useEffect(() => {
     reload();
@@ -32,7 +36,7 @@ export default function Documents() {
   const today = todayKey();
 
   const save = async (doc) => {
-    await saveDocument(doc);
+    await store.saveDocument(doc);
     await reload();
     setEditing(null);
     setViewingId(doc.id);
@@ -40,7 +44,7 @@ export default function Documents() {
 
   const remove = async (id) => {
     if (!window.confirm('¿Eliminar este documento y sus fotos?')) return;
-    await deleteDocument(id);
+    await store.deleteDocument(id);
     setViewingId(null);
     reload();
   };
@@ -48,7 +52,7 @@ export default function Documents() {
   return (
     <div className="stack">
       <p className="hint">
-        Se guardan solo en este teléfono, no se suben a ningún servidor. Haz una copia en Ajustes para no perderlos.
+        🔒 Se guardan cifrados con tu código y solo en este teléfono; nunca se suben a internet. Haz una copia cifrada en Ajustes para no perderlos.
       </p>
       <button type="button" className="btn primary" onClick={() => setEditing({})}>
         <Plus size={18} /> Agregar documento
@@ -115,11 +119,22 @@ function DocumentDetail({ doc, today, onImage, onEdit, onDelete }) {
   const [copied, setCopied] = useState(false);
   const status = expiryStatus(doc.expiry, today);
 
+  // El número vuelve a ocultarse solo, por si dejas el teléfono a la vista.
+  useEffect(() => {
+    if (!reveal) return;
+    const timer = setTimeout(() => setReveal(false), REVEAL_MS);
+    return () => clearTimeout(timer);
+  }, [reveal]);
+
   const copy = async () => {
     try {
       await navigator.clipboard.writeText(doc.number);
       setCopied(true);
-      setTimeout(() => setCopied(false), 1500);
+      // Se limpia el portapapeles para que otras apps no puedan leer el número después.
+      setTimeout(() => {
+        setCopied(false);
+        navigator.clipboard.writeText('').catch(() => {});
+      }, CLIPBOARD_CLEAR_MS);
     } catch {
       setReveal(true);
     }
@@ -149,7 +164,7 @@ function DocumentDetail({ doc, today, onImage, onEdit, onDelete }) {
               <Copy size={18} />
             </button>
           </div>
-          {copied && <span className="hint">Copiado</span>}
+          {copied && <span className="hint">Copiado. Se borrará del portapapeles en 30 s.</span>}
         </div>
       )}
       {doc.expiry && (
@@ -192,8 +207,10 @@ function DocumentForm({ initial, onSave }) {
   const set = (patch) => setForm((f) => ({ ...f, ...patch }));
 
   const addPhotos = async (e) => {
-    const files = [...e.target.files].slice(0, MAX_PHOTOS - images.length);
+    const picked = [...e.target.files];
     e.target.value = '';
+    const files = picked.filter((f) => f.type.startsWith('image/') && f.size <= MAX_PHOTO_BYTES).slice(0, MAX_PHOTOS - images.length);
+    if (files.length < picked.length) setError('Algunos archivos se ignoraron: solo se aceptan fotos de hasta 30 MB.');
     if (!files.length) return;
     setBusy(true);
     try {
@@ -270,7 +287,7 @@ function DocumentForm({ initial, onSave }) {
             <label className="photo photo-add">
               <Camera size={22} />
               <span>Agregar</span>
-              <input type="file" accept="image/*" multiple hidden onChange={addPhotos} />
+              <input type="file" accept="image/*" multiple hidden onClick={allowBackgroundBriefly} onChange={addPhotos} />
             </label>
           )}
         </div>

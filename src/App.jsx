@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useState } from 'react';
-import { ArrowLeftRight, CalendarDays, House, IdCard, Plus, Settings as SettingsIcon, StickyNote } from 'lucide-react';
+import { ArrowLeftRight, CalendarDays, House, IdCard, Lock, Plus, Settings as SettingsIcon, StickyNote } from 'lucide-react';
 import MovementForm from './components/MovementForm';
 import Sheet from './components/Sheet';
-import { exportBackup, readBackup } from './lib/backup';
-import { clearDocuments } from './lib/documentsDb';
+import { backgroundAllowed } from './lib/autolock';
+import { exportBackup } from './lib/backup';
 import { notifyDueReminders } from './lib/notify';
-import { useLocalState } from './lib/storage';
+import { DEFAULT_SETTINGS } from './lib/settings';
+import { EMPTY_STATE } from './lib/store';
 import CalendarView from './views/CalendarView';
 import Documents from './views/Documents';
 import Home from './views/Home';
@@ -21,16 +22,15 @@ const TABS = [
   { id: 'notes', label: 'Notas', icon: StickyNote },
 ];
 
-const DEFAULT_SETTINGS = { currency: '$', theme: 'auto' };
-const EMPTY_CATEGORIES = { expense: [], income: [] };
+const MIN_IDLE_MS = 60 * 1000;
 
-export default function App() {
+export default function App({ session, settings, setSettings, onLock }) {
+  const { store } = session;
   const [tab, setTab] = useState('home');
-  const [movements, setMovements] = useLocalState('miGestor.movements', []);
-  const [notes, setNotes] = useLocalState('miGestor.notes', []);
-  const [categories, setCategories] = useLocalState('miGestor.categories', EMPTY_CATEGORIES);
-  const [storedSettings, setSettings] = useLocalState('miGestor.settings', DEFAULT_SETTINGS);
-  const settings = { ...DEFAULT_SETTINGS, ...storedSettings };
+  const [movements, setMovements] = useState(session.state.movements ?? []);
+  const [notes, setNotes] = useState(session.state.notes ?? []);
+  const [categories, setCategories] = useState(session.state.categories ?? EMPTY_STATE.categories);
+  const [saveError, setSaveError] = useState(false);
   const [cursor, setCursor] = useState(() => {
     const now = new Date();
     return { y: now.getFullYear(), m: now.getMonth() };
@@ -38,21 +38,58 @@ export default function App() {
   const [editing, setEditing] = useState(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
 
+  // Cada cambio se guarda cifrado.
   useEffect(() => {
-    const root = document.documentElement;
-    if (settings.theme === 'auto') root.removeAttribute('data-theme');
-    else root.dataset.theme = settings.theme;
-  }, [settings.theme]);
+    store
+      .saveState({ movements, notes, categories })
+      .then(() => setSaveError(false))
+      .catch(() => setSaveError(true));
+  }, [store, movements, notes, categories]);
 
   // Comprueba los recordatorios al abrir la app y cada vez que vuelve a primer plano.
   useEffect(() => {
     const check = () => {
-      if (document.visibilityState === 'visible') notifyDueReminders(movements, settings.currency).catch(() => {});
+      if (document.visibilityState === 'visible') {
+        notifyDueReminders(movements, settings.currency, settings.notificationDetails).catch(() => {});
+      }
     };
     check();
     document.addEventListener('visibilitychange', check);
     return () => document.removeEventListener('visibilitychange', check);
-  }, [movements, settings.currency]);
+  }, [movements, settings.currency, settings.notificationDetails]);
+
+  // Bloqueo automático: por inactividad y al volver de segundo plano.
+  useEffect(() => {
+    const limit = settings.autoLock * 60 * 1000;
+    let lastActivity = Date.now();
+    let hiddenAt = null;
+    const touch = () => {
+      lastActivity = Date.now();
+    };
+    const onVisibility = () => {
+      if (document.visibilityState === 'hidden') {
+        if (backgroundAllowed()) return;
+        hiddenAt = Date.now();
+        if (limit === 0) onLock();
+      } else if (hiddenAt !== null && Date.now() - hiddenAt >= limit) {
+        onLock();
+      } else {
+        hiddenAt = null;
+        touch();
+      }
+    };
+    const timer = setInterval(() => {
+      if (Date.now() - lastActivity >= Math.max(limit, MIN_IDLE_MS) && !backgroundAllowed()) onLock();
+    }, 10000);
+    const events = ['pointerdown', 'keydown', 'scroll', 'touchstart'];
+    events.forEach((e) => window.addEventListener(e, touch, { passive: true }));
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => {
+      clearInterval(timer);
+      events.forEach((e) => window.removeEventListener(e, touch));
+      document.removeEventListener('visibilitychange', onVisibility);
+    };
+  }, [settings.autoLock, onLock]);
 
   const saveMovement = (movement) => {
     setMovements((list) =>
@@ -70,18 +107,18 @@ export default function App() {
   const closeSettings = useCallback(() => setSettingsOpen(false), []);
   const changeCursor = (y, m) => setCursor({ y, m });
 
-  const importData = async (file) => {
-    const data = await readBackup(file);
+  const importData = async (data) => {
+    await store.clearDocuments();
+    for (const doc of data.documents) await store.saveDocument(doc);
     setMovements(data.movements);
     setNotes(data.notes);
     setCategories(data.categories);
-    if (data.settings) setSettings({ ...DEFAULT_SETTINGS, ...data.settings });
   };
   const resetAll = async () => {
-    await clearDocuments();
+    await store.clearDocuments();
     setMovements([]);
     setNotes([]);
-    setCategories(EMPTY_CATEGORIES);
+    setCategories(EMPTY_STATE.categories);
   };
 
   const views = {
@@ -108,7 +145,7 @@ export default function App() {
         onAdd={setEditing}
       />
     ),
-    documents: <Documents />,
+    documents: <Documents store={store} />,
     notes: <Notes notes={notes} setNotes={setNotes} />,
   };
 
@@ -121,10 +158,17 @@ export default function App() {
           <p className="eyebrow">Mi Gestor</p>
           <h1>{current.label}</h1>
         </div>
-        <button type="button" className="icon-btn" onClick={() => setSettingsOpen(true)} aria-label="Ajustes">
-          <SettingsIcon size={22} />
-        </button>
+        <div className="topbar-actions">
+          <button type="button" className="icon-btn" onClick={onLock} aria-label="Bloquear">
+            <Lock size={20} />
+          </button>
+          <button type="button" className="icon-btn" onClick={() => setSettingsOpen(true)} aria-label="Ajustes">
+            <SettingsIcon size={22} />
+          </button>
+        </div>
       </header>
+
+      {saveError && <p className="error banner">No se pudieron guardar los últimos cambios. Revisa el espacio del teléfono.</p>}
 
       <main className="content">{views[tab]}</main>
 
@@ -167,9 +211,10 @@ export default function App() {
           <Settings
             settings={settings}
             onChange={(patch) => setSettings((s) => ({ ...DEFAULT_SETTINGS, ...s, ...patch }))}
-            onExport={() => exportBackup({ movements, notes, categories, settings })}
+            onExport={(password) => exportBackup(store, { movements, notes, categories }, password)}
             onImport={importData}
             onReset={resetAll}
+            onLock={onLock}
           />
         </Sheet>
       )}

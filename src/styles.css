@@ -315,3 +315,38 @@ textarea { resize: vertical; }
 .colors { display: flex; gap: 8px; }
 .swatch { width: 30px; height: 30px; border-radius: 50%; border: 2px solid var(--border); padding: 0; }
 .swatch.on { border-color: var(--primary); box-shadow: 0 0 0 2px var(--primary-soft); }
+
+/* Seguridad: bloqueo y privacidad */
+.privacy-blur #root { filter: blur(24px); }
+.topbar-actions { display: flex; gap: 8px; }
+.lock-screen {
+  min-height: 100dvh; display: grid; place-items: center;
+  padding: calc(env(safe-area-inset-top) + 24px) 16px calc(env(safe-area-inset-bottom) + 24px);
+}
+.lock-card {
+  width: 100%; max-width: 400px; display: flex; flex-direction: column; gap: 14px;
+  background: var(--surface); border: 1px solid var(--border); border-radius: 24px; padding: 28px 20px; box-shadow: var(--shadow);
+}
+.lock-card h1 { font-size: 1.5rem; }
+.lock-icon { width: 64px; height: 64px; border-radius: 20px; display: grid; place-items: center; background: var(--primary-soft); color: var(--primary); }
+.code-input { display: flex; gap: 8px; align-items: center; }
+.code-input input { flex: 1; font-size: 1.05rem; }
+.code-input .icon-btn { width: 46px; height: 46px; }
+.warn-text { color: var(--warn); }
+.banner { background: var(--expense-soft); padding: 10px 12px; border-radius: 12px; margin-bottom: 12px; }
+.status { background: var(--primary-soft); color: var(--text); padding: 10px 12px; border-radius: 12px; font-size: 0.9rem; }
+.settings-group { display: flex; flex-direction: column; gap: 12px; padding-bottom: 16px; border-bottom: 1px solid var(--border); }
+.settings-group .card-title { margin-bottom: 0; }
+.subform { display: flex; flex-direction: column; gap: 10px; padding: 12px; border-radius: 14px; background: var(--surface-2); }
+.subform input { background: var(--surface); }
+.toggle { display: flex; align-items: center; gap: 12px; cursor: pointer; }
+.toggle input {
+  appearance: none; -webkit-appearance: none; flex: none; width: 50px !important; height: 30px; padding: 0 !important;
+  border-radius: 99px; background: var(--border) !important; border: 0 !important; position: relative; cursor: pointer; transition: background 0.15s;
+}
+.toggle input::after {
+  content: ''; position: absolute; top: 3px; left: 3px; width: 24px; height: 24px; border-radius: 50%;
+  background: #fff; box-shadow: 0 1px 3px rgb(0 0 0 / 0.3); transition: transform 0.15s;
+}
+.toggle input:checked { background: var(--primary) !important; }
+.toggle input:checked::after { transform: translateX(20px); }

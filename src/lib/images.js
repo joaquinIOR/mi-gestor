@@ -37,4 +37,3 @@ export function blobToDataUrl(blob) {
   });
 }
 
-export const dataUrlToBlob = (dataUrl) => fetch(dataUrl).then((r) => r.blob());

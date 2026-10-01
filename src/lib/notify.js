@@ -18,7 +18,8 @@ export function dueReminders(movements) {
 }
 
 // Muestra los recordatorios de hoy una sola vez por día (se comprueba al abrir la app).
-export async function notifyDueReminders(movements, currency) {
+// Por privacidad, sin `details` la notificación no muestra montos ni descripciones en la pantalla bloqueada.
+export async function notifyDueReminders(movements, currency, details = false) {
   if (!notificationsSupported() || Notification.permission !== 'granted') return;
 
   const today = todayKey();
@@ -38,7 +39,7 @@ export async function notifyDueReminders(movements, currency) {
     const when = m.occurrence === today ? 'hoy' : `el ${parseKey(m.occurrence).toLocaleDateString('es', { day: 'numeric', month: 'short' })}`;
     const title = m.type === 'income' ? `Ingreso ${when}` : `Pago ${when}`;
     const options = {
-      body: `${m.description || m.category} · ${formatMoney(m.amount, currency)}`,
+      body: details ? `${m.description || m.category} · ${formatMoney(m.amount, currency)}` : 'Abre Mi Gestor para ver el detalle.',
       icon: 'icons/icon-192.png',
       tag: `${m.id}@${m.occurrence}`,
     };

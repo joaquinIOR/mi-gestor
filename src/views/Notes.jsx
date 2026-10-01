@@ -2,8 +2,7 @@ import { useState } from 'react';
 import { Pin, Plus, Search, StickyNote, Trash2 } from 'lucide-react';
 import Sheet from '../components/Sheet';
 import { uid } from '../lib/format';
-
-const COLORS = ['plain', 'yellow', 'green', 'blue', 'pink', 'purple'];
+import { NOTE_COLORS } from '../lib/validate';
 
 export default function Notes({ notes, setNotes }) {
   const [query, setQuery] = useState('');
@@ -78,7 +77,7 @@ function NoteForm({ initial, onSave, onDelete }) {
       <textarea rows={6} placeholder="Escribe tu nota…" value={body} onChange={(e) => setBody(e.target.value)} autoFocus={!initial.id} />
       <div className="note-options">
         <div className="colors" role="radiogroup" aria-label="Color">
-          {COLORS.map((c) => (
+          {NOTE_COLORS.map((c) => (
             <button
               type="button"
               key={c}

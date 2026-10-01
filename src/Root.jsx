@@ -1,0 +1,40 @@
+import { useCallback, useEffect, useState } from 'react';
+import App from './App';
+import { cryptoAvailable } from './lib/crypto';
+import { DEFAULT_SETTINGS } from './lib/settings';
+import { useLocalState } from './lib/storage';
+import { readVault } from './lib/vault';
+import { LockScreen, SetupScreen, UnsupportedScreen } from './views/LockScreens';
+
+export default function Root() {
+  // Los ajustes no son sensibles (tema, moneda…) y se necesitan antes de desbloquear.
+  const [storedSettings, setSettings] = useLocalState('miGestor.settings', DEFAULT_SETTINGS);
+  const settings = { ...DEFAULT_SETTINGS, ...storedSettings };
+  const [hasVault, setHasVault] = useState(() => readVault() !== null);
+  // La sesión guarda la clave en memoria; al bloquear se descarta.
+  const [session, setSession] = useState(null);
+
+  useEffect(() => {
+    const root = document.documentElement;
+    if (settings.theme === 'auto') root.removeAttribute('data-theme');
+    else root.dataset.theme = settings.theme;
+  }, [settings.theme]);
+
+  // Difumina el contenido al salir de la app para que no aparezca en la vista de apps recientes.
+  useEffect(() => {
+    const onChange = () => document.documentElement.classList.toggle('privacy-blur', document.visibilityState === 'hidden');
+    document.addEventListener('visibilitychange', onChange);
+    return () => document.removeEventListener('visibilitychange', onChange);
+  }, []);
+
+  const lock = useCallback(() => setSession(null), []);
+  const ready = useCallback((s) => {
+    setHasVault(true);
+    setSession(s);
+  }, []);
+
+  if (!cryptoAvailable()) return <UnsupportedScreen />;
+  if (!hasVault) return <SetupScreen onReady={ready} />;
+  if (!session) return <LockScreen wipeOnFailures={settings.wipeOnFailures} onUnlock={setSession} onWiped={() => setHasVault(false)} />;
+  return <App session={session} settings={settings} setSettings={setSettings} onLock={lock} />;
+}

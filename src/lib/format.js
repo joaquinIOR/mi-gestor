@@ -5,8 +5,8 @@ export function formatMoney(amount, symbol = '$') {
   return `${amount < 0 ? '-' : ''}${symbol}${value}`;
 }
 
-// crypto.randomUUID solo existe en contextos seguros (HTTPS); en la red local se usa un respaldo.
+// crypto.randomUUID solo existe en contextos seguros (HTTPS); fuera de ellos se usan bytes aleatorios.
 export const uid = () =>
   typeof crypto.randomUUID === 'function'
     ? crypto.randomUUID()
-    : Date.now().toString(36) + Math.random().toString(36).slice(2);
+    : Array.from(crypto.getRandomValues(new Uint8Array(16)), (b) => b.toString(16).padStart(2, '0')).join('');
