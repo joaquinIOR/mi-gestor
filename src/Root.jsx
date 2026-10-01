@@ -4,6 +4,7 @@ import { cryptoAvailable } from './lib/crypto';
 import { uid } from './lib/format';
 import { clearQuickFromUrl, QUICK_TYPES, quickFromUrl, showQuickAccess } from './lib/quick';
 import { DEFAULT_SETTINGS } from './lib/settings';
+import { DEFAULT_PALETTE, PALETTES } from './lib/themes';
 import { useLocalState } from './lib/storage';
 import { readVault } from './lib/vault';
 import { LockScreen, SetupScreen, UnsupportedScreen } from './views/LockScreens';
@@ -39,7 +40,17 @@ export default function Root() {
     const root = document.documentElement;
     if (settings.theme === 'auto') root.removeAttribute('data-theme');
     else root.dataset.theme = settings.theme;
-  }, [settings.theme]);
+    root.dataset.palette = PALETTES.some((p) => p.id === settings.palette) ? settings.palette : DEFAULT_PALETTE;
+    // La barra de estado del teléfono toma el color de fondo del tema.
+    const paint = () => {
+      const color = getComputedStyle(root).getPropertyValue('--bg').trim();
+      document.querySelector('meta[name="theme-color"]')?.setAttribute('content', color);
+    };
+    paint();
+    const media = window.matchMedia('(prefers-color-scheme: dark)');
+    media.addEventListener('change', paint);
+    return () => media.removeEventListener('change', paint);
+  }, [settings.theme, settings.palette]);
 
   // Difumina el contenido al salir de la app para que no aparezca en la vista de apps recientes.
   useEffect(() => {

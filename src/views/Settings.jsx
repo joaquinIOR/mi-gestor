@@ -6,6 +6,7 @@ import { isEncryptedBackup, MIN_BACKUP_PASSWORD, openBackup, readBackupFile } fr
 import { notificationsSupported } from '../lib/notify';
 import { hideQuickAccess, showQuickAccess } from '../lib/quick';
 import { AUTO_LOCK_OPTIONS, CURRENCIES } from '../lib/settings';
+import { PALETTES } from '../lib/themes';
 import {
   biometricInfo,
   changeCode,
@@ -18,7 +19,7 @@ import {
 } from '../lib/vault';
 
 const THEMES = [
-  { value: 'auto', label: 'Automático' },
+  { value: 'auto', label: 'Auto' },
   { value: 'light', label: 'Claro' },
   { value: 'dark', label: 'Oscuro' },
 ];
@@ -200,6 +201,7 @@ export default function Settings({ settings, onChange, onExport, onImport, onRes
   const [permission, setPermission] = useState(() => (notificationsSupported() ? Notification.permission : 'unsupported'));
   const [installPrompt, setInstallPrompt] = useState(() => window.deferredInstallPrompt ?? null);
   const [panel, setPanel] = useState(null);
+  const darkMode = settings.theme === 'dark' || (settings.theme === 'auto' && window.matchMedia('(prefers-color-scheme: dark)').matches);
   const [status, setStatus] = useState('');
   const [bioSupported, setBioSupported] = useState(null);
   const [bioEnabled, setBioEnabled] = useState(() => biometricInfo() !== null);
@@ -351,7 +353,7 @@ export default function Settings({ settings, onChange, onExport, onImport, onRes
       {status && <p className="status">{status}</p>}
 
       <section className="settings-group">
-        <h3 className="card-title">General</h3>
+        <h3 className="card-title">Apariencia y general</h3>
         <div className="field">
           <span>Moneda</span>
           <div className="chips">
@@ -363,7 +365,28 @@ export default function Settings({ settings, onChange, onExport, onImport, onRes
           </div>
         </div>
         <div className="field">
-          <span>Tema</span>
+          <span>Colores</span>
+          <div className="palette-grid" role="radiogroup" aria-label="Tema de colores">
+            {PALETTES.map((p) => (
+              <button
+                type="button"
+                key={p.id}
+                role="radio"
+                aria-checked={settings.palette === p.id}
+                className={`palette-option ${settings.palette === p.id ? 'on' : ''}`}
+                onClick={() => onChange({ palette: p.id })}
+              >
+                <span
+                  className="palette-dot"
+                  style={{ background: p[darkMode ? 'dark' : 'light'][0], '--dot-accent': p[darkMode ? 'dark' : 'light'][1] }}
+                />
+                {p.name}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className="field">
+          <span>Modo</span>
           <div className="segmented">
             {THEMES.map((t) => (
               <button type="button" key={t.value} className={settings.theme === t.value ? 'on' : ''} onClick={() => onChange({ theme: t.value })}>

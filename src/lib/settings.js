@@ -10,6 +10,7 @@ export const AUTO_LOCK_OPTIONS = [
 export const DEFAULT_SETTINGS = {
   currency: '$',
   theme: 'auto',
+  palette: 'menta',
   autoLock: 1,
   notificationDetails: false,
   wipeOnFailures: false,
