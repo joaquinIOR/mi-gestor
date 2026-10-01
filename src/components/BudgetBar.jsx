@@ -1,11 +1,12 @@
 import { useState } from 'react';
 import { AlertTriangle, Pencil } from 'lucide-react';
+import { WARN_OPTIONS } from '../lib/budget';
 import { categoryColor, categoryEmoji, categorySlot } from '../lib/categories';
 import { formatMoney, parseAmount } from '../lib/format';
 
 const percent = (value) => `${value.toLocaleString('es-CL', { maximumFractionDigits: value < 10 ? 1 : 0 })} %`;
 
-function BudgetForm({ budget, income, currency, onSave, onCancel }) {
+function BudgetForm({ budget, income, currency, settings, onSettings, onSave, onCancel }) {
   const [value, setValue] = useState(budget ? String(budget) : '');
   const [error, setError] = useState('');
 
@@ -36,6 +37,30 @@ function BudgetForm({ budget, income, currency, onSave, onCancel }) {
           Usar mis ingresos del mes ({formatMoney(income, currency)})
         </button>
       )}
+      <label className="toggle">
+        <span className="row-main">
+          <span className="row-title">Avisarme cuando me pase del presupuesto</span>
+          <span className="hint">Aparece una alerta en el momento en que un gasto supera tu tope.</span>
+        </span>
+        <input type="checkbox" role="switch" checked={settings.budgetAlert} onChange={(e) => onSettings({ budgetAlert: e.target.checked })} />
+      </label>
+      {settings.budgetAlert && (
+        <div className="field">
+          <span>Avisar también antes de llegar al tope</span>
+          <div className="segmented">
+            {WARN_OPTIONS.map((o) => (
+              <button
+                type="button"
+                key={o.value}
+                className={settings.budgetWarnAt === o.value ? 'on' : ''}
+                onClick={() => onSettings({ budgetWarnAt: o.value })}
+              >
+                {o.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
       {error && <p className="error">{error}</p>}
       <div className="actions">
         {budget && (
@@ -55,7 +80,7 @@ function BudgetForm({ budget, income, currency, onSave, onCancel }) {
 }
 
 // Barra de progreso del mes: el tope es el 100 % y cada tipo de gasto suma un tramo de su color.
-export default function BudgetBar({ expenses, income, budget, monthLabel, currency, onSetBudget }) {
+export default function BudgetBar({ expenses, income, budget, monthLabel, currency, onSetBudget, settings, onSettings }) {
   const [editing, setEditing] = useState(false);
   const [selected, setSelected] = useState(null);
 
@@ -95,6 +120,8 @@ export default function BudgetBar({ expenses, income, budget, monthLabel, curren
           budget={budget}
           income={income}
           currency={currency}
+          settings={settings}
+          onSettings={onSettings}
           onCancel={() => setEditing(false)}
           onSave={(value) => {
             onSetBudget(value);

@@ -6,7 +6,7 @@ import { addDays, MONTHS, monthEnd, monthStart, parseKey, todayKey } from '../li
 import { formatMoney } from '../lib/format';
 import { expandRange, sumTotals } from '../lib/recurrence';
 
-export default function Home({ movements, notesCount, currency, budget, onSetBudget, onAdd, onEdit, onNavigate }) {
+export default function Home({ movements, notesCount, currency, budget, onSetBudget, settings, onSettings, onAdd, onEdit, onNavigate }) {
   const today = todayKey();
   const now = parseKey(today);
   const y = now.getFullYear();
@@ -56,6 +56,8 @@ export default function Home({ movements, notesCount, currency, budget, onSetBud
         monthLabel={MONTHS[m].toLowerCase()}
         currency={currency}
         onSetBudget={onSetBudget}
+        settings={settings}
+        onSettings={onSettings}
       />
 
       <div className="quick">

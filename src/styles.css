@@ -395,3 +395,18 @@ textarea { resize: vertical; }
 .legend-pct { color: var(--muted); font-size: 0.85rem; text-align: right; }
 .dot-lg { width: 12px; height: 12px; border-radius: 4px; flex: none; display: inline-block; }
 @media (prefers-reduced-motion: reduce) { .budget-seg { transition: none; } }
+
+/* Alerta de presupuesto */
+.alert-backdrop { align-items: center; padding: 16px; z-index: 70; }
+.budget-alert {
+  width: 100%; max-width: 400px; display: flex; flex-direction: column; gap: 12px; text-align: left;
+  background: var(--surface); border-radius: 24px; padding: 24px 20px; box-shadow: 0 20px 50px rgb(0 0 0 / 0.3);
+  animation: rise 0.2s ease-out;
+}
+.budget-alert h2 { font-size: 1.3rem; }
+.budget-alert p { color: var(--muted); line-height: 1.55; }
+.budget-alert p b { color: var(--text); }
+.alert-icon { width: 56px; height: 56px; border-radius: 18px; display: grid; place-items: center; }
+.budget-alert.over .alert-icon { background: var(--expense-soft); color: var(--expense); }
+.budget-alert.warn .alert-icon { background: var(--warn-soft); color: var(--warn); }
+@media (prefers-reduced-motion: reduce) { .budget-alert { animation: none; } }

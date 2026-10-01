@@ -14,4 +14,6 @@ export const DEFAULT_SETTINGS = {
   notificationDetails: false,
   wipeOnFailures: false,
   quickAccess: false,
+  budgetAlert: true,
+  budgetWarnAt: 0,
 };

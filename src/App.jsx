@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useState } from 'react';
 import { ArrowLeftRight, CalendarDays, House, IdCard, Lock, Plus, Settings as SettingsIcon, StickyNote } from 'lucide-react';
+import BudgetAlert from './components/BudgetAlert';
 import MovementForm from './components/MovementForm';
 import Sheet from './components/Sheet';
 import { backgroundAllowed } from './lib/autolock';
 import { exportBackup } from './lib/backup';
+import { budgetAlert, monthSpent } from './lib/budget';
 import { notifyDueReminders } from './lib/notify';
 import { DEFAULT_SETTINGS } from './lib/settings';
 import { EMPTY_STATE } from './lib/store';
@@ -38,6 +40,7 @@ export default function App({ session, settings, setSettings, quick, onLock }) {
   });
   const [editing, setEditing] = useState(() => (quick ? { type: quick.type, express: true } : null));
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [alert, setAlert] = useState(null);
   // Abre el formulario rápido si llega una petición mientras la app está desbloqueada.
   const [seenQuick, setSeenQuick] = useState(quick);
   if (quick && quick !== seenQuick) {
@@ -99,16 +102,35 @@ export default function App({ session, settings, setSettings, quick, onLock }) {
     };
   }, [settings.autoLock, onLock]);
 
+  // Avisa si el cambio hace cruzar el presupuesto del mes (o el aviso previo).
+  const checkBudget = (nextMovements, nextBudget = budget) => {
+    const found = budgetAlert({
+      before: monthSpent(movements),
+      after: monthSpent(nextMovements),
+      budgetBefore: budget,
+      budgetAfter: nextBudget,
+      settings,
+    });
+    if (found) setAlert(found);
+  };
+
   const saveMovement = (movement) => {
-    setMovements((list) =>
-      list.some((m) => m.id === movement.id) ? list.map((m) => (m.id === movement.id ? movement : m)) : [...list, movement]
-    );
+    const next = movements.some((m) => m.id === movement.id)
+      ? movements.map((m) => (m.id === movement.id ? movement : m))
+      : [...movements, movement];
+    setMovements(next);
     setEditing(null);
+    checkBudget(next);
   };
   const deleteMovement = (id) => {
     setMovements((list) => list.filter((m) => m.id !== id));
     setEditing(null);
   };
+  const changeBudget = (value) => {
+    setBudget(value);
+    checkBudget(movements, value);
+  };
+  const closeAlert = useCallback(() => setAlert(null), []);
   const addCategory = (type, name) => setCategories((c) => ({ ...c, [type]: [...(c[type] ?? []), name] }));
 
   const closeEditor = useCallback(() => setEditing(null), []);
@@ -138,7 +160,9 @@ export default function App({ session, settings, setSettings, quick, onLock }) {
         notesCount={notes.length}
         currency={settings.currency}
         budget={budget}
-        onSetBudget={setBudget}
+        onSetBudget={changeBudget}
+        settings={settings}
+        onSettings={(patch) => setSettings((s) => ({ ...DEFAULT_SETTINGS, ...s, ...patch }))}
         onAdd={setEditing}
         onEdit={setEditing}
         onNavigate={setTab}
@@ -220,6 +244,19 @@ export default function App({ session, settings, setSettings, quick, onLock }) {
             onDelete={deleteMovement}
           />
         </Sheet>
+      )}
+
+      {alert && (
+        <BudgetAlert
+          alert={alert}
+          currency={settings.currency}
+          onClose={closeAlert}
+          onShow={() => {
+            setAlert(null);
+            setTab('home');
+            requestAnimationFrame(() => document.querySelector('.budget')?.scrollIntoView({ behavior: 'smooth', block: 'center' }));
+          }}
+        />
       )}
 
       {settingsOpen && (
