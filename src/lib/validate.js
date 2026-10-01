@@ -101,3 +101,8 @@ export function sanitizeDocuments(list) {
       return [{ id: uid(), ...meta, images }];
     });
 }
+
+export const sanitizeBudget = (value) => {
+  const amount = Number(value);
+  return amount > 0 && amount < 1e12 ? Math.round(amount * 100) / 100 : null;
+};

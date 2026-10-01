@@ -1,7 +1,7 @@
 import { decryptJson, deriveKey, encryptJson, fromBase64, KDF_ITERATIONS, randomBytes, toBase64 } from './crypto';
 import { todayKey } from './dates';
 import { blobToDataUrl } from './images';
-import { sanitizeCategories, sanitizeDocuments, sanitizeMovements, sanitizeNotes } from './validate';
+import { sanitizeBudget, sanitizeCategories, sanitizeDocuments, sanitizeMovements, sanitizeNotes } from './validate';
 
 const APP_ID = 'mi-gestor';
 const MAX_FILE_BYTES = 150 * 1024 * 1024;
@@ -67,6 +67,7 @@ export async function openBackup(json, password) {
     movements: sanitizeMovements(payload.movements),
     notes: sanitizeNotes(payload.notes),
     categories: sanitizeCategories(payload.categories),
+    budget: sanitizeBudget(payload.budget),
     documents: sanitizeDocuments(payload.documents),
   };
 }

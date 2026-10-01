@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Plus, Trash2 } from 'lucide-react';
 import { categoryList } from '../lib/categories';
 import { todayKey } from '../lib/dates';
-import { uid } from '../lib/format';
+import { parseAmount, uid } from '../lib/format';
 import { FREQUENCIES, REMINDERS } from '../lib/recurrence';
 
 function toForm(initial) {
@@ -42,7 +42,7 @@ export default function MovementForm({ initial, categories, currency, onAddCateg
 
   const submit = (e) => {
     e.preventDefault();
-    const amount = Number(form.amount.replace(',', '.'));
+    const amount = parseAmount(form.amount);
     if (!(amount > 0)) return setError('Escribe un monto mayor que 0.');
     if (!form.category) return setError('Elige un tipo.');
     if (!form.date) return setError('Elige una fecha.');

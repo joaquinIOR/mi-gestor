@@ -1,12 +1,12 @@
 import { useMemo } from 'react';
 import { Bell, ChevronRight, IdCard, StickyNote, TrendingDown, TrendingUp } from 'lucide-react';
+import BudgetBar from '../components/BudgetBar';
 import MovementRow from '../components/MovementRow';
-import { categoryEmoji } from '../lib/categories';
 import { addDays, MONTHS, monthEnd, monthStart, parseKey, todayKey } from '../lib/dates';
 import { formatMoney } from '../lib/format';
 import { expandRange, sumTotals } from '../lib/recurrence';
 
-export default function Home({ movements, notesCount, currency, onAdd, onEdit, onNavigate }) {
+export default function Home({ movements, notesCount, currency, budget, onSetBudget, onAdd, onEdit, onNavigate }) {
   const today = todayKey();
   const now = parseKey(today);
   const y = now.getFullYear();
@@ -25,9 +25,8 @@ export default function Home({ movements, notesCount, currency, onAdd, onEdit, o
     for (const item of monthItems) {
       if (item.type === 'expense') map.set(item.category, (map.get(item.category) ?? 0) + item.amount);
     }
-    return [...map.entries()].sort((a, b) => b[1] - a[1]);
+    return [...map.entries()];
   }, [monthItems]);
-  const maxCategory = byCategory[0]?.[1] ?? 0;
 
   return (
     <div className="stack">
@@ -49,6 +48,15 @@ export default function Home({ movements, notesCount, currency, onAdd, onEdit, o
           </div>
         </div>
       </section>
+
+      <BudgetBar
+        expenses={byCategory}
+        income={totals.income}
+        budget={budget}
+        monthLabel={MONTHS[m].toLowerCase()}
+        currency={currency}
+        onSetBudget={onSetBudget}
+      />
 
       <div className="quick">
         <button type="button" className="quick-btn expense" onClick={() => onAdd({ type: 'expense' })}>
@@ -102,26 +110,6 @@ export default function Home({ movements, notesCount, currency, onAdd, onEdit, o
         )}
       </section>
 
-      <section className="card">
-        <h3 className="card-title">Gastos por tipo este mes</h3>
-        {byCategory.length ? (
-          <div className="bars">
-            {byCategory.map(([name, amount]) => (
-              <div key={name} className="bar-row">
-                <span className="bar-label">
-                  {categoryEmoji(name)} {name}
-                </span>
-                <span className="bar-value">{formatMoney(amount, currency)}</span>
-                <span className="bar-track">
-                  <span className="bar-fill" style={{ width: `${(amount / maxCategory) * 100}%` }} />
-                </span>
-              </div>
-            ))}
-          </div>
-        ) : (
-          <p className="empty">Aún no hay gastos este mes.</p>
-        )}
-      </section>
     </div>
   );
 }

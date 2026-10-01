@@ -9,7 +9,8 @@ Funciona como una app instalada (icono propio, pantalla completa) y **sin conexi
 - **Gastos e ingresos:** monto, tipo (Comida, Transporte, Sueldo… o tus propios tipos) y una descripción corta.
 - **Repetición:** una vez, diario, semanal o mensual, con fecha final opcional.
 - **Recordatorios:** el mismo día, 1 día antes o 3 días antes. Aparecen en Inicio y como notificación al abrir la app.
-- **Resumen mensual:** balance, ingresos, gastos y gastos por tipo.
+- **Resumen mensual:** balance, ingresos y gastos.
+- **Barra de presupuesto:** define un tope mensual (por ejemplo, tu sueldo) y mira cuánto llevas gastado. Cada tipo de gasto suma un tramo con su color; toca un tramo para ver su monto y porcentaje. Avisa si te pasas del tope.
 - **Calendario:** puntos verdes (ingresos) y rojos (gastos) en cada día; toca un día para ver o agregar movimientos.
 - **Mis documentos:** fotos de carnet, tarjetas, licencia, pasaporte, seguro… con número oculto (•••• 1234), botón para copiarlo y aviso de vencimiento.
 - **Notas:** rápidas, con colores, fijadas arriba y búsqueda.

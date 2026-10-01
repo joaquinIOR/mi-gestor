@@ -30,6 +30,7 @@ export default function App({ session, settings, setSettings, quick, onLock }) {
   const [movements, setMovements] = useState(session.state.movements ?? []);
   const [notes, setNotes] = useState(session.state.notes ?? []);
   const [categories, setCategories] = useState(session.state.categories ?? EMPTY_STATE.categories);
+  const [budget, setBudget] = useState(session.state.budget ?? null);
   const [saveError, setSaveError] = useState(false);
   const [cursor, setCursor] = useState(() => {
     const now = new Date();
@@ -48,10 +49,10 @@ export default function App({ session, settings, setSettings, quick, onLock }) {
   // Cada cambio se guarda cifrado.
   useEffect(() => {
     store
-      .saveState({ movements, notes, categories })
+      .saveState({ movements, notes, categories, budget })
       .then(() => setSaveError(false))
       .catch(() => setSaveError(true));
-  }, [store, movements, notes, categories]);
+  }, [store, movements, notes, categories, budget]);
 
   // Comprueba los recordatorios al abrir la app y cada vez que vuelve a primer plano.
   useEffect(() => {
@@ -120,12 +121,14 @@ export default function App({ session, settings, setSettings, quick, onLock }) {
     setMovements(data.movements);
     setNotes(data.notes);
     setCategories(data.categories);
+    setBudget(data.budget);
   };
   const resetAll = async () => {
     await store.clearDocuments();
     setMovements([]);
     setNotes([]);
     setCategories(EMPTY_STATE.categories);
+    setBudget(null);
   };
 
   const views = {
@@ -134,6 +137,8 @@ export default function App({ session, settings, setSettings, quick, onLock }) {
         movements={movements}
         notesCount={notes.length}
         currency={settings.currency}
+        budget={budget}
+        onSetBudget={setBudget}
         onAdd={setEditing}
         onEdit={setEditing}
         onNavigate={setTab}
@@ -222,7 +227,7 @@ export default function App({ session, settings, setSettings, quick, onLock }) {
           <Settings
             settings={settings}
             onChange={(patch) => setSettings((s) => ({ ...DEFAULT_SETTINGS, ...s, ...patch }))}
-            onExport={(password) => exportBackup(store, { movements, notes, categories }, password)}
+            onExport={(password) => exportBackup(store, { movements, notes, categories, budget }, password)}
             onImport={importData}
             onReset={resetAll}
             onLock={onLock}
