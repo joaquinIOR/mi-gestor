@@ -8,9 +8,10 @@ Funciona como una app instalada (icono propio, pantalla completa) y **sin conexi
 
 - **Gastos e ingresos:** monto, tipo (Comida, Transporte, Sueldo… o tus propios tipos) y una descripción corta.
 - **Repetición:** una vez, diario, semanal o mensual, con fecha final opcional.
-- **Recordatorios:** el mismo día, 1 día antes o 3 días antes. Aparecen en Inicio y como notificación al abrir la app.
+- **Recordatorios:** el mismo día, 1 o 3 días antes, 1 o 2 semanas antes, o los días que elijas (hasta 60). Aparecen en Inicio y como notificación al abrir la app.
 - **Resumen mensual:** balance, ingresos y gastos.
 - **Barra de presupuesto:** define un tope mensual (por ejemplo, tu sueldo) y mira cuánto llevas gastado. Cada tipo de gasto suma un tramo con su color; toca un tramo para ver su monto y porcentaje. Cuando un gasto te hace **superar el presupuesto** aparece una alerta (y el teléfono vibra); opcionalmente también un aviso previo al 80 % o 90 %.
+- **Pagos de tarjeta:** desde el Calendario, registra el pago mensual de tus tarjetas (lista de tarjetas de crédito, débito y prepago habituales en Chile, o una propia) con su aviso. Solo se guarda el nombre de la tarjeta, nunca el número.
 - **Calendario:** puntos verdes (ingresos) y rojos (gastos) en cada día; toca un día para ver o agregar movimientos.
 - **Mis documentos:** fotos de carnet, tarjetas, licencia, pasaporte, seguro… con número oculto (•••• 1234), botón para copiarlo y aviso de vencimiento.
 - **Notas:** rápidas, con colores, fijadas arriba y búsqueda.

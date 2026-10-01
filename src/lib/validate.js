@@ -1,10 +1,10 @@
 import { DOC_TYPES } from './documentTypes';
 import { uid } from './format';
+import { MAX_REMINDER_DAYS } from './recurrence';
 
 // Todo lo que entra desde un archivo externo pasa por aquí: se descartan tipos y valores inesperados.
 export const NOTE_COLORS = ['plain', 'yellow', 'green', 'blue', 'pink', 'purple'];
 const FREQUENCIES = ['once', 'daily', 'weekly', 'monthly'];
-const REMINDERS = [0, 1, 3];
 const IMAGE_DATA_URL = /^data:(image\/(?:jpeg|png|webp));base64,([A-Za-z0-9+/]+={0,2})$/;
 const MAX_ITEMS = 20000;
 
@@ -36,7 +36,8 @@ export function sanitizeMovements(list) {
         date: m.date,
         frequency,
         until: frequency !== 'once' && isDateKey(m.until) ? m.until : null,
-        reminder: REMINDERS.includes(m.reminder) ? m.reminder : null,
+        reminder: Number.isInteger(m.reminder) && m.reminder >= 0 && m.reminder <= MAX_REMINDER_DAYS ? m.reminder : null,
+        card: text(m.card, 40).trim() || null,
         createdAt: Number.isFinite(m.createdAt) ? m.createdAt : Date.now(),
       },
     ];

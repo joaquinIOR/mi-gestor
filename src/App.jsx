@@ -231,11 +231,11 @@ export default function App({ session, settings, setSettings, quick, onLock }) {
 
       {editing && (
         <Sheet
-          title={editing.id ? 'Editar movimiento' : editing.express ? (editing.type === 'income' ? 'Ingreso rápido' : 'Gasto rápido') : 'Nuevo movimiento'}
+          title={editing.id ? 'Editar movimiento' : editing.cardPayment ? 'Pago de tarjeta' : editing.express ? (editing.type === 'income' ? 'Ingreso rápido' : 'Gasto rápido') : 'Nuevo movimiento'}
           onClose={closeEditor}
         >
           <MovementForm
-            key={editing.id ?? `${editing.type}-${editing.express}`}
+            key={editing.id ?? `${editing.type}-${editing.express}-${editing.cardPayment}-${editing.date}`}
             initial={editing}
             categories={categories}
             currency={settings.currency}

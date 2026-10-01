@@ -12,7 +12,20 @@ export const REMINDERS = [
   { value: '0', label: 'El mismo día' },
   { value: '1', label: '1 día antes' },
   { value: '3', label: '3 días antes' },
+  { value: '7', label: '1 semana antes' },
+  { value: '14', label: '2 semanas antes' },
+  { value: 'custom', label: 'Otro (elige los días)…' },
 ];
+
+export const MAX_REMINDER_DAYS = 60;
+
+export function reminderLabel(days) {
+  if (days == null) return '';
+  if (days === 0) return 'el mismo día';
+  if (days === 7) return '1 semana antes';
+  if (days === 14) return '2 semanas antes';
+  return days === 1 ? '1 día antes' : `${days} días antes`;
+}
 
 export const frequencyLabel = (value) => FREQUENCIES.find((f) => f.value === value)?.label ?? value;
 

@@ -1,10 +1,10 @@
 import { useMemo, useState } from 'react';
-import { Plus } from 'lucide-react';
+import { Bell, CreditCard, Plus } from 'lucide-react';
 import MonthSwitcher from '../components/MonthSwitcher';
 import MovementRow from '../components/MovementRow';
 import { daysInMonth, formatLong, monthEnd, monthStart, parseKey, todayKey, toKey, WEEKDAYS } from '../lib/dates';
 import { formatMoney } from '../lib/format';
-import { expandRange, sumTotals } from '../lib/recurrence';
+import { expandRange, reminderLabel, sumTotals } from '../lib/recurrence';
 
 export default function CalendarView({ movements, currency, cursor, onCursor, onEdit, onAdd }) {
   const today = todayKey();
@@ -24,6 +24,10 @@ export default function CalendarView({ movements, currency, cursor, onCursor, on
     return expandRange(movements, d, d);
   }, [movements, selected]);
   const dayTotals = sumTotals(dayItems);
+  const cardPayments = Object.values(byDay)
+    .flat()
+    .filter((i) => i.card)
+    .sort((a, b) => a.occurrence.localeCompare(b.occurrence));
 
   const changeMonth = (ny, nm) => {
     onCursor(ny, nm);
@@ -53,20 +57,37 @@ export default function CalendarView({ movements, currency, cursor, onCursor, on
                 <span>{parseKey(key).getDate()}</span>
                 <span className="dots">
                   {items.some((x) => x.type === 'income') && <i className="dot income" />}
-                  {items.some((x) => x.type === 'expense') && <i className="dot expense" />}
+                  {items.some((x) => x.type === 'expense' && !x.card) && <i className="dot expense" />}
+                  {items.some((x) => x.card) && <i className="dot cardpay" />}
                 </span>
               </button>
             );
           })}
+        </div>
+        <div className="cal-legend" aria-hidden="true">
+          <span><i className="dot income" /> Ingreso</span>
+          <span><i className="dot expense" /> Gasto</span>
+          <span><i className="dot cardpay" /> Pago de tarjeta</span>
         </div>
       </section>
 
       <section className="card">
         <div className="day-head">
           <h3 className="day-title">{formatLong(selected)}</h3>
-          <button type="button" className="btn small primary" onClick={() => onAdd({ date: selected })}>
-            <Plus size={16} /> Agregar
-          </button>
+          <div className="day-actions">
+            <button
+              type="button"
+              className="btn small"
+              onClick={() =>
+                onAdd({ date: selected, type: 'expense', category: 'Deudas', frequency: 'monthly', reminder: 3, cardPayment: true })
+              }
+            >
+              <CreditCard size={16} /> Pago de tarjeta
+            </button>
+            <button type="button" className="btn small primary" onClick={() => onAdd({ date: selected })}>
+              <Plus size={16} /> Agregar
+            </button>
+          </div>
         </div>
         {dayItems.length ? (
           <>
@@ -81,6 +102,37 @@ export default function CalendarView({ movements, currency, cursor, onCursor, on
           </>
         ) : (
           <p className="empty">Sin movimientos este día.</p>
+        )}
+      </section>
+
+      <section className="card">
+        <h3 className="card-title">
+          <CreditCard size={18} /> Pagos de tarjeta del mes
+        </h3>
+        {cardPayments.length ? (
+          <div className="list">
+            {cardPayments.map((item) => (
+              <button type="button" key={`${item.id}@${item.occurrence}`} className="row" onClick={() => onEdit(item)}>
+                <span className="row-icon card-icon" aria-hidden="true">
+                  <CreditCard size={18} />
+                </span>
+                <span className="row-main">
+                  <span className="row-title">{item.card}</span>
+                  <span className="row-sub">
+                    {formatLong(item.occurrence)}
+                    {item.reminder != null && (
+                      <span className="badge">
+                        <Bell size={11} /> {reminderLabel(item.reminder)}
+                      </span>
+                    )}
+                  </span>
+                </span>
+                <span className="amount expense">{formatMoney(item.amount, currency)}</span>
+              </button>
+            ))}
+          </div>
+        ) : (
+          <p className="empty">No hay pagos de tarjeta este mes. Elige un día y toca «Pago de tarjeta».</p>
         )}
       </section>
     </div>

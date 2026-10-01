@@ -17,7 +17,12 @@ export default function Home({ movements, notesCount, currency, budget, onSetBud
 
   const upcoming = useMemo(() => {
     const start = parseKey(today);
-    return expandRange(movements.filter((x) => x.reminder != null), start, addDays(start, 7)).slice(0, 6);
+    // Cada movimiento aparece cuando entra en su propio plazo de aviso (mínimo una semana).
+    return movements
+      .filter((x) => x.reminder != null)
+      .flatMap((x) => expandRange([x], start, addDays(start, Math.max(7, x.reminder))))
+      .sort((a, b) => a.occurrence.localeCompare(b.occurrence))
+      .slice(0, 6);
   }, [movements, today]);
 
   const byCategory = useMemo(() => {
@@ -108,7 +113,7 @@ export default function Home({ movements, notesCount, currency, budget, onSetBud
             ))}
           </div>
         ) : (
-          <p className="empty">Nada en los próximos 7 días. Activa un recordatorio al crear un gasto o ingreso.</p>
+          <p className="empty">Nada próximo. Activa un recordatorio al crear un gasto o ingreso.</p>
         )}
       </section>
 
