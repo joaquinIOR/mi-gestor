@@ -1,10 +1,21 @@
-import { useState } from 'react';
-import { Bell, Download, KeyRound, Lock, ShieldAlert, Smartphone, Trash2, Upload } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { Bell, Download, Fingerprint, KeyRound, Lock, ShieldAlert, Smartphone, Trash2, Upload, Zap } from 'lucide-react';
+import { biometricErrorMessage, biometricSupported, registerBiometric } from '../lib/biometric';
 import { allowBackgroundBriefly } from '../lib/autolock';
 import { isEncryptedBackup, MIN_BACKUP_PASSWORD, openBackup, readBackupFile } from '../lib/backup';
 import { notificationsSupported } from '../lib/notify';
+import { hideQuickAccess, showQuickAccess } from '../lib/quick';
 import { AUTO_LOCK_OPTIONS, CURRENCIES } from '../lib/settings';
-import { changeCode, codeWarning, MIN_CODE_LENGTH, WIPE_AFTER_FAILURES, WrongCodeError } from '../lib/vault';
+import {
+  biometricInfo,
+  changeCode,
+  codeWarning,
+  disableBiometric,
+  enableBiometric,
+  MIN_CODE_LENGTH,
+  WIPE_AFTER_FAILURES,
+  WrongCodeError,
+} from '../lib/vault';
 
 const THEMES = [
   { value: 'auto', label: 'Automático' },
@@ -56,6 +67,36 @@ function ChangeCodeForm({ onDone }) {
       {error && <p className="error">{error}</p>}
       <button type="submit" className="btn primary" disabled={busy}>
         {busy ? 'Guardando…' : 'Cambiar código'}
+      </button>
+    </form>
+  );
+}
+
+function BiometricForm({ onDone }) {
+  const [code, setCode] = useState('');
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  const submit = async (e) => {
+    e.preventDefault();
+    setBusy(true);
+    setError('');
+    try {
+      await enableBiometric(code, registerBiometric);
+      onDone('Huella / Face ID activado. La próxima vez podrás desbloquear con un toque.');
+    } catch (err) {
+      setError(err instanceof WrongCodeError ? 'El código no es correcto.' : biometricErrorMessage(err));
+      setBusy(false);
+    }
+  };
+
+  return (
+    <form className="subform" onSubmit={submit}>
+      <p className="hint">Confirma tu código. Después el teléfono te pedirá la huella o la cara (puede pedirla dos veces).</p>
+      <input {...passwordProps} autoComplete="current-password" placeholder="Tu código" value={code} onChange={(e) => setCode(e.target.value)} autoFocus />
+      {error && <p className="error">{error}</p>}
+      <button type="submit" className="btn primary" disabled={busy || !code}>
+        <Fingerprint size={18} /> {busy ? 'Esperando al sensor…' : 'Activar huella / Face ID'}
       </button>
     </form>
   );
@@ -160,6 +201,32 @@ export default function Settings({ settings, onChange, onExport, onImport, onRes
   const [installPrompt, setInstallPrompt] = useState(() => window.deferredInstallPrompt ?? null);
   const [panel, setPanel] = useState(null);
   const [status, setStatus] = useState('');
+  const [bioSupported, setBioSupported] = useState(null);
+  const [bioEnabled, setBioEnabled] = useState(() => biometricInfo() !== null);
+
+  useEffect(() => {
+    biometricSupported().then(setBioSupported);
+  }, []);
+
+  const toggleQuickAccess = async (on) => {
+    setStatus('');
+    if (!on) {
+      onChange({ quickAccess: false });
+      hideQuickAccess().catch(() => {});
+      return;
+    }
+    let current = permission;
+    if (current === 'default') {
+      current = await Notification.requestPermission();
+      setPermission(current);
+    }
+    if (current !== 'granted') {
+      setStatus('Para el acceso rápido en la barra de notificaciones, permite las notificaciones de Mi Gestor.');
+      return;
+    }
+    onChange({ quickAccess: true });
+    if (!(await showQuickAccess().catch(() => false))) setStatus('El acceso rápido aparecerá cuando la app esté instalada y abierta desde https.');
+  };
 
   const enableNotifications = async () => setPermission(await Notification.requestPermission());
   const install = async () => {
@@ -175,6 +242,7 @@ export default function Settings({ settings, onChange, onExport, onImport, onRes
   const done = (message) => {
     setPanel(null);
     setStatus(message);
+    setBioEnabled(biometricInfo() !== null);
   };
 
   return (
@@ -203,6 +271,34 @@ export default function Settings({ settings, onChange, onExport, onImport, onRes
           </button>
         </div>
         {panel === 'code' && <ChangeCodeForm onDone={done} />}
+        <div className="field">
+          <span>Huella / Face ID</span>
+          {bioEnabled ? (
+            <Toggle
+              checked
+              onChange={() => {
+                if (window.confirm('¿Desactivar el desbloqueo con huella / Face ID? Tendrás que usar tu código.')) {
+                  disableBiometric();
+                  done('Huella / Face ID desactivado. Si quieres, borra la passkey "Mi Gestor" del gestor de contraseñas del teléfono.');
+                }
+              }}
+              label="Desbloquear con huella o Face ID"
+              description="Activado. Tu código sigue funcionando siempre."
+            />
+          ) : bioSupported === false ? (
+            <p className="hint">
+              Este teléfono o navegador no permite usar la huella en apps web. Necesitas Android con Chrome actualizado, o iPhone con iOS 18 o
+              posterior y la app instalada desde Safari.
+            </p>
+          ) : (
+            <>
+              <button type="button" className="btn" onClick={() => toggle('biometric')} disabled={bioSupported === null}>
+                <Fingerprint size={18} /> Activar huella / Face ID
+              </button>
+              {panel === 'biometric' && <BiometricForm onDone={done} />}
+            </>
+          )}
+        </div>
         <Toggle
           checked={settings.notificationDetails}
           onChange={(v) => onChange({ notificationDetails: v })}
@@ -219,6 +315,22 @@ export default function Settings({ settings, onChange, onExport, onImport, onRes
           label={`Borrar todo tras ${WIPE_AFTER_FAILURES} intentos fallidos`}
           description="Protege tus documentos si te roban el teléfono. Ten una copia de seguridad."
         />
+      </section>
+
+      <section className="settings-group">
+        <h3 className="card-title">
+          <Zap size={18} /> Acceso rápido
+        </h3>
+        <Toggle
+          checked={settings.quickAccess}
+          onChange={toggleQuickAccess}
+          label="Botones en la barra de notificaciones"
+          description="Deja fija una notificación con «− Gasto» y «+ Ingreso». No muestra ningún dato tuyo."
+        />
+        <p className="hint">
+          <b>Android:</b> mantén pulsado el icono de Mi Gestor para ver <b>Gasto rápido</b> e <b>Ingreso rápido</b>; puedes arrastrarlos a la
+          pantalla de inicio como si fueran widgets. <b>iPhone:</b> las apps web no admiten botones en notificaciones ni atajos del icono.
+        </p>
       </section>
 
       <section className="settings-group">

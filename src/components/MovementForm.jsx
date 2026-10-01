@@ -21,6 +21,8 @@ function toForm(initial) {
 export default function MovementForm({ initial, categories, currency, onAddCategory, onSave, onDelete }) {
   const [form, setForm] = useState(() => toForm(initial));
   const [newCategory, setNewCategory] = useState(null);
+  // En el modo rápido solo se ve lo esencial: monto, tipo y descripción.
+  const [more, setMore] = useState(!initial.express);
   const [error, setError] = useState('');
   const set = (patch) => setForm((f) => ({ ...f, ...patch }));
   const options = categoryList(form.type, categories);
@@ -131,44 +133,54 @@ export default function MovementForm({ initial, categories, currency, onAddCateg
         />
       </label>
 
-      <label className="field">
-        <span>{form.frequency === 'once' ? 'Fecha' : 'Empieza el'}</span>
-        <input type="date" value={form.date} onChange={(e) => set({ date: e.target.value })} required />
-      </label>
-
-      <div className="field">
-        <span>Se repite</span>
-        <div className="segmented">
-          {FREQUENCIES.map((f) => (
-            <button
-              type="button"
-              key={f.value}
-              className={form.frequency === f.value ? 'on' : ''}
-              onClick={() => set({ frequency: f.value })}
-            >
-              {f.label}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {form.frequency !== 'once' && (
-        <label className="field">
-          <span>Hasta (opcional)</span>
-          <input type="date" value={form.until} min={form.date} onChange={(e) => set({ until: e.target.value })} />
-        </label>
+      {!more && (
+        <button type="button" className="btn ghost" onClick={() => setMore(true)}>
+          Más opciones (fecha, repetición, recordatorio)
+        </button>
       )}
 
-      <label className="field">
-        <span>Recordatorio</span>
-        <select value={form.reminder} onChange={(e) => set({ reminder: e.target.value })}>
-          {REMINDERS.map((r) => (
-            <option key={r.value} value={r.value}>
-              {r.label}
-            </option>
-          ))}
-        </select>
-      </label>
+      {more && (
+        <>
+          <label className="field">
+            <span>{form.frequency === 'once' ? 'Fecha' : 'Empieza el'}</span>
+            <input type="date" value={form.date} onChange={(e) => set({ date: e.target.value })} required />
+          </label>
+
+          <div className="field">
+            <span>Se repite</span>
+            <div className="segmented">
+              {FREQUENCIES.map((f) => (
+                <button
+                  type="button"
+                  key={f.value}
+                  className={form.frequency === f.value ? 'on' : ''}
+                  onClick={() => set({ frequency: f.value })}
+                >
+                  {f.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {form.frequency !== 'once' && (
+            <label className="field">
+              <span>Hasta (opcional)</span>
+              <input type="date" value={form.until} min={form.date} onChange={(e) => set({ until: e.target.value })} />
+            </label>
+          )}
+
+          <label className="field">
+            <span>Recordatorio</span>
+            <select value={form.reminder} onChange={(e) => set({ reminder: e.target.value })}>
+              {REMINDERS.map((r) => (
+                <option key={r.value} value={r.value}>
+                  {r.label}
+                </option>
+              ))}
+            </select>
+          </label>
+        </>
+      )}
 
       {initial.id && initial.frequency !== 'once' && (
         <p className="hint">Los cambios se aplican a todas las repeticiones de este movimiento.</p>

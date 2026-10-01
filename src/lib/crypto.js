@@ -34,6 +34,18 @@ export async function deriveKey(password, salt, iterations = KDF_ITERATIONS) {
   );
 }
 
+// Convierte un secreto de alta entropía (p. ej. el que entrega la huella vía WebAuthn PRF) en una clave AES.
+export async function deriveKeyFromSecret(secret, purpose) {
+  const base = await crypto.subtle.importKey('raw', secret, 'HKDF', false, ['deriveKey']);
+  return crypto.subtle.deriveKey(
+    { name: 'HKDF', hash: 'SHA-256', salt: new Uint8Array(32), info: encoder.encode(purpose) },
+    base,
+    { name: 'AES-GCM', length: 256 },
+    false,
+    ['wrapKey', 'unwrapKey']
+  );
+}
+
 export const generateDataKey = () => crypto.subtle.generateKey({ name: 'AES-GCM', length: 256 }, true, ['encrypt', 'decrypt']);
 
 export async function wrapDataKey(dataKey, wrappingKey) {

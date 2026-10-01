@@ -6,7 +6,7 @@ Mi Gestor guarda información sensible (finanzas, fotos de carnet y tarjetas, no
 
 | Riesgo | Protección |
 |---|---|
-| Alguien toma tu teléfono desbloqueado | La app pide un **código**. Se bloquea sola al salir o tras un tiempo sin uso, y tiene un botón 🔒 para bloquear al instante. |
+| Alguien toma tu teléfono desbloqueado | La app pide un **código** o tu **huella / Face ID**. Se bloquea sola al salir o tras un tiempo sin uso, y tiene un botón 🔒 para bloquear al instante. |
 | Alguien prueba códigos al azar | Espera obligatoria tras 5 fallos (30 s → 15 min). Opcional: **borrar todo tras 10 fallos**. |
 | Alguien copia los archivos del navegador (robo, malware, copia del teléfono) | Todo se guarda **cifrado** con AES-GCM 256. Sin el código, los datos son ilegibles. |
 | Se filtra tu copia de seguridad (WhatsApp, correo, Drive) | Las copias siempre se **cifran con una contraseña** propia. |
@@ -22,6 +22,20 @@ Mi Gestor guarda información sensible (finanzas, fotos de carnet y tarjetas, no
 3. Solo se guarda la clave de datos **cifrada**. El código nunca se guarda.
 4. Al desbloquear, la clave de datos vive solo en memoria y es **no extraíble**. Al bloquear se descarta.
 5. Movimientos, notas, tipos y documentos (incluidas las fotos) se cifran con AES-GCM antes de escribirse en el disco.
+
+### Huella / Face ID
+
+Es opcional (Ajustes → Seguridad). Usa una **passkey** del teléfono con la extensión **WebAuthn PRF**:
+
+- Al activarla se pide tu código y se crea una passkey "Mi Gestor" protegida por la huella o la cara.
+- Tras verificarte, el sensor entrega un secreto de 32 bytes que solo existe con tu huella o tu cara. Con él (vía HKDF) se cifra **otra copia** de la clave de datos.
+- La huella **no es solo una pantalla**: sin ella esa copia no se puede descifrar. Tu código sigue funcionando siempre.
+- Cambiar el código no afecta a la huella. Al desactivarla se borra esa copia (puedes borrar también la passkey del gestor de contraseñas).
+- Requiere Android con Chrome actualizado, o iPhone con iOS 18 o posterior. Si el teléfono no admite PRF, la opción no se activa (nunca se usa un método menos seguro).
+
+### Acceso rápido
+
+La notificación fija de acceso rápido y los atajos del icono (**Gasto rápido** / **Ingreso rápido**) no muestran ningún dato: solo abren el formulario, y si la app está bloqueada primero piden el código o la huella.
 
 Todo usa la Web Crypto API del navegador. No hay servidor: los datos nunca salen del teléfono, salvo en la copia de seguridad que tú descargas.
 

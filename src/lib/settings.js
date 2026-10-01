@@ -13,4 +13,5 @@ export const DEFAULT_SETTINGS = {
   autoLock: 1,
   notificationDetails: false,
   wipeOnFailures: false,
+  quickAccess: false,
 };

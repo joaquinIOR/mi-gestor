@@ -1,5 +1,5 @@
 // Service worker: permite instalar la app y usarla sin conexión.
-const CACHE = 'mi-gestor-v2';
+const CACHE = 'mi-gestor-v3';
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
@@ -48,10 +48,19 @@ self.addEventListener('fetch', (event) => {
   );
 });
 
-// Al tocar un recordatorio, abre (o enfoca) la app.
+// Al tocar una notificación se abre (o enfoca) la app. Los botones "− Gasto" / "+ Ingreso"
+// de la notificación de acceso rápido abren directamente el formulario correspondiente.
 self.addEventListener('notificationclick', (event) => {
-  event.notification.close();
+  const quick = ['expense', 'income'].includes(event.action) ? event.action : null;
+  // La notificación de acceso rápido se queda fija; las demás se cierran.
+  if (!event.notification.data?.quickAccess) event.notification.close();
+  const url = new URL(quick ? `./?quick=${quick}` : './', self.registration.scope).href;
   event.waitUntil(
-    self.clients.matchAll({ type: 'window' }).then((list) => (list[0] ? list[0].focus() : self.clients.openWindow('./')))
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((list) => {
+      const client = list[0];
+      if (!client) return self.clients.openWindow(url);
+      if (quick) client.postMessage({ type: 'quick', quick });
+      return client.focus();
+    })
   );
 });

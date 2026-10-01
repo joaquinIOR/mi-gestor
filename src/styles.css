@@ -350,3 +350,4 @@ textarea { resize: vertical; }
 }
 .toggle input:checked { background: var(--primary) !important; }
 .toggle input:checked::after { transform: translateX(20px); }
+.toggle .row-title { white-space: normal; }

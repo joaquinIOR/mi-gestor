@@ -13,7 +13,8 @@ Funciona como una app instalada (icono propio, pantalla completa) y **sin conexi
 - **Calendario:** puntos verdes (ingresos) y rojos (gastos) en cada día; toca un día para ver o agregar movimientos.
 - **Mis documentos:** fotos de carnet, tarjetas, licencia, pasaporte, seguro… con número oculto (•••• 1234), botón para copiarlo y aviso de vencimiento.
 - **Notas:** rápidas, con colores, fijadas arriba y búsqueda.
-- **Seguridad:** código de bloqueo, cifrado AES-256 de todos los datos, bloqueo automático, límite de intentos y borrado opcional tras 10 fallos.
+- **Seguridad:** código de bloqueo y **desbloqueo con huella / Face ID**, cifrado AES-256 de todos los datos, bloqueo automático, límite de intentos y borrado opcional tras 10 fallos.
+- **Acceso rápido:** notificación fija con botones **− Gasto** / **+ Ingreso** y atajos al mantener pulsado el icono (Android). El formulario rápido solo pide monto, tipo y descripción.
 - **Ajustes:** moneda, tema claro/oscuro, copia de seguridad **cifrada** (exportar/importar) y borrar datos.
 
 ## 📲 Instalar en el teléfono

@@ -1,7 +1,9 @@
-import { useEffect, useState } from 'react';
-import { Eye, EyeOff, Lock, ShieldCheck } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+import { Eye, EyeOff, Fingerprint, Lock, ShieldCheck } from 'lucide-react';
+import { biometricErrorMessage, readBiometricSecret } from '../lib/biometric';
 import { openSession, wipeAllData } from '../lib/store';
 import {
+  biometricInfo,
   codeWarning,
   createVault,
   getLockout,
@@ -10,6 +12,7 @@ import {
   removeVault,
   resetFailures,
   unlockVault,
+  unlockWithBiometric,
   WIPE_AFTER_FAILURES,
   WrongCodeError,
 } from '../lib/vault';
@@ -86,17 +89,63 @@ export function SetupScreen({ onReady }) {
   );
 }
 
-export function LockScreen({ wipeOnFailures, onUnlock, onWiped }) {
+export function LockScreen({ wipeOnFailures, quickType, onUnlock, onWiped }) {
   const [code, setCode] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const [lockout, setLockout] = useState(getLockout);
   const [now, setNow] = useState(() => Date.now());
+  const [hasBiometric] = useState(() => biometricInfo() !== null);
+  const autoTried = useRef(false);
+  // Petición de huella automática en curso: se cancela si el usuario prefiere escribir el código.
+  const pendingBio = useRef(null);
+  const cancelAutoBiometric = () => {
+    pendingBio.current?.abort();
+    pendingBio.current = null;
+  };
+  const typeCode = (value) => {
+    cancelAutoBiometric();
+    setCode(value);
+  };
 
   useEffect(() => {
     const timer = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(timer);
   }, []);
+
+  const unlockBiometric = async () => {
+    if (busy) return;
+    cancelAutoBiometric();
+    setBusy(true);
+    setError('');
+    try {
+      const key = await unlockWithBiometric(readBiometricSecret);
+      resetFailures();
+      onUnlock(await openSession(key));
+    } catch (err) {
+      setBusy(false);
+      setError(biometricErrorMessage(err));
+    }
+  };
+
+  // Pide la huella automáticamente al aparecer la pantalla (en iPhone hay que tocar el botón).
+  useEffect(() => {
+    if (!hasBiometric || autoTried.current || document.visibilityState !== 'visible') return;
+    autoTried.current = true;
+    const controller = new AbortController();
+    pendingBio.current = controller;
+    readBiometricSecret(biometricInfo(), controller.signal)
+      .then((secret) => unlockWithBiometric(() => secret))
+      .then(async (key) => {
+        resetFailures();
+        onUnlock(await openSession(key));
+      })
+      .catch(() => {})
+      .finally(() => {
+        if (pendingBio.current === controller) pendingBio.current = null;
+      });
+    return () => controller.abort();
+  }, [hasBiometric, onUnlock]);
 
   const wait = Math.max(0, Math.ceil((lockout.until - now) / 1000));
   const remaining = WIPE_AFTER_FAILURES - lockout.failures;
@@ -135,8 +184,15 @@ export function LockScreen({ wipeOnFailures, onUnlock, onWiped }) {
           <Lock size={32} />
         </span>
         <h1>Mi Gestor</h1>
-        <p className="muted">Escribe tu código para desbloquear.</p>
-        <CodeInput value={code} onChange={setCode} placeholder="Código" autoFocus autoComplete="current-password" />
+        <p className="muted">
+          {quickType ? `Desbloquea para registrar un ${quickType === 'income' ? 'ingreso' : 'gasto'}.` : 'Escribe tu código para desbloquear.'}
+        </p>
+        {hasBiometric && (
+          <button type="button" className="btn primary" onClick={unlockBiometric} disabled={busy}>
+            <Fingerprint size={20} /> Usar huella o Face ID
+          </button>
+        )}
+        <CodeInput value={code} onChange={typeCode} placeholder="Código" autoFocus={!hasBiometric} autoComplete="current-password" />
         {error && <p className="error">{error}</p>}
         {wait > 0 && <p className="hint warn-text">Demasiados intentos. Espera {wait} s.</p>}
         {wipeOnFailures && lockout.failures > 0 && (
@@ -144,7 +200,7 @@ export function LockScreen({ wipeOnFailures, onUnlock, onWiped }) {
             Quedan {remaining} {remaining === 1 ? 'intento' : 'intentos'} antes de borrar todos los datos.
           </p>
         )}
-        <button type="submit" className="btn primary" disabled={busy || wait > 0}>
+        <button type="submit" className={`btn ${hasBiometric ? '' : 'primary'}`} disabled={busy || wait > 0}>
           {busy ? 'Abriendo…' : 'Desbloquear'}
         </button>
       </form>

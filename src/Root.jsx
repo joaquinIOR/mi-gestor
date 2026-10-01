@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useState } from 'react';
 import App from './App';
 import { cryptoAvailable } from './lib/crypto';
+import { uid } from './lib/format';
+import { clearQuickFromUrl, QUICK_TYPES, quickFromUrl, showQuickAccess } from './lib/quick';
 import { DEFAULT_SETTINGS } from './lib/settings';
 import { useLocalState } from './lib/storage';
 import { readVault } from './lib/vault';
@@ -13,6 +15,25 @@ export default function Root() {
   const [hasVault, setHasVault] = useState(() => readVault() !== null);
   // La sesión guarda la clave en memoria; al bloquear se descarta.
   const [session, setSession] = useState(null);
+  // Petición de "gasto/ingreso rápido" (desde el icono o la notificación); se atiende tras desbloquear.
+  const [quick, setQuick] = useState(() => {
+    const type = quickFromUrl();
+    return type ? { type, id: uid() } : null;
+  });
+
+  useEffect(() => {
+    clearQuickFromUrl();
+    const onMessage = (e) => {
+      if (e.data?.type === 'quick' && QUICK_TYPES.includes(e.data.quick)) setQuick({ type: e.data.quick, id: uid() });
+    };
+    navigator.serviceWorker?.addEventListener('message', onMessage);
+    return () => navigator.serviceWorker?.removeEventListener('message', onMessage);
+  }, []);
+
+  // La notificación de acceso rápido se vuelve a mostrar al abrir la app (por si se cerró o se reinició el teléfono).
+  useEffect(() => {
+    if (settings.quickAccess) navigator.serviceWorker?.ready.then(() => showQuickAccess()).catch(() => {});
+  }, [settings.quickAccess]);
 
   useEffect(() => {
     const root = document.documentElement;
@@ -27,7 +48,10 @@ export default function Root() {
     return () => document.removeEventListener('visibilitychange', onChange);
   }, []);
 
-  const lock = useCallback(() => setSession(null), []);
+  const lock = useCallback(() => {
+    setSession(null);
+    setQuick(null);
+  }, []);
   const ready = useCallback((s) => {
     setHasVault(true);
     setSession(s);
@@ -35,6 +59,15 @@ export default function Root() {
 
   if (!cryptoAvailable()) return <UnsupportedScreen />;
   if (!hasVault) return <SetupScreen onReady={ready} />;
-  if (!session) return <LockScreen wipeOnFailures={settings.wipeOnFailures} onUnlock={setSession} onWiped={() => setHasVault(false)} />;
-  return <App session={session} settings={settings} setSettings={setSettings} onLock={lock} />;
+  if (!session) {
+    return (
+      <LockScreen
+        wipeOnFailures={settings.wipeOnFailures}
+        quickType={quick?.type}
+        onUnlock={setSession}
+        onWiped={() => setHasVault(false)}
+      />
+    );
+  }
+  return <App session={session} settings={settings} setSettings={setSettings} quick={quick} onLock={lock} />;
 }

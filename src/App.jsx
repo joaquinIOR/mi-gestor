@@ -24,7 +24,7 @@ const TABS = [
 
 const MIN_IDLE_MS = 60 * 1000;
 
-export default function App({ session, settings, setSettings, onLock }) {
+export default function App({ session, settings, setSettings, quick, onLock }) {
   const { store } = session;
   const [tab, setTab] = useState('home');
   const [movements, setMovements] = useState(session.state.movements ?? []);
@@ -35,8 +35,15 @@ export default function App({ session, settings, setSettings, onLock }) {
     const now = new Date();
     return { y: now.getFullYear(), m: now.getMonth() };
   });
-  const [editing, setEditing] = useState(null);
+  const [editing, setEditing] = useState(() => (quick ? { type: quick.type, express: true } : null));
   const [settingsOpen, setSettingsOpen] = useState(false);
+  // Abre el formulario rápido si llega una petición mientras la app está desbloqueada.
+  const [seenQuick, setSeenQuick] = useState(quick);
+  if (quick && quick !== seenQuick) {
+    setSeenQuick(quick);
+    setSettingsOpen(false);
+    setEditing({ type: quick.type, express: true });
+  }
 
   // Cada cambio se guarda cifrado.
   useEffect(() => {
@@ -194,8 +201,12 @@ export default function App({ session, settings, setSettings, onLock }) {
       </nav>
 
       {editing && (
-        <Sheet title={editing.id ? 'Editar movimiento' : 'Nuevo movimiento'} onClose={closeEditor}>
+        <Sheet
+          title={editing.id ? 'Editar movimiento' : editing.express ? (editing.type === 'income' ? 'Ingreso rápido' : 'Gasto rápido') : 'Nuevo movimiento'}
+          onClose={closeEditor}
+        >
           <MovementForm
+            key={editing.id ?? `${editing.type}-${editing.express}`}
             initial={editing}
             categories={categories}
             currency={settings.currency}
