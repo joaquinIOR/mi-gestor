@@ -17,6 +17,7 @@ Funciona como una app instalada (icono propio, pantalla completa) y **sin conexi
 - **Notas:** rápidas, con colores, fijadas arriba y búsqueda.
 - **Seguridad:** código de bloqueo y **desbloqueo con huella / Face ID**, cifrado AES-256 de todos los datos, bloqueo automático, límite de intentos y borrado opcional tras 10 fallos.
 - **Acceso rápido:** notificación fija con botones **− Gasto** / **+ Ingreso** y atajos al mantener pulsado el icono (Android). El formulario rápido solo pide monto, tipo y descripción.
+- **Gastos en común en tiempo real:** crea un grupo (por ejemplo, «Casa»), invita a otra persona con un QR o un enlace y registren gastos compartidos: cada una ve al instante lo que la otra agrega, quién pagó, cuánto se deben y puede registrar pagos para quedar a mano. Cifrado de extremo a extremo con Supabase (plan gratuito); ver `supabase/setup.sql`.
 - **Temas de color:** Menta, Rosa pastel, Lavanda, Cielo, Durazno, Salvia, Coral, Índigo y Grafito, cada uno en modo claro y oscuro (contraste verificado).
 - **Ajustes:** moneda, tema de color, modo claro/oscuro, copia de seguridad **cifrada** (exportar/importar) y borrar datos.
 
@@ -39,4 +40,10 @@ npm run lint
 npm run build
 ```
 
-Hecho con React + Vite. Sin dependencias de servidor.
+### Servidor para gastos en común (opcional)
+
+1. Crea un proyecto gratis en [supabase.com](https://supabase.com).
+2. En **SQL Editor**, ejecuta [`supabase/setup.sql`](supabase/setup.sql).
+3. En la app: **Grupo → Crear grupo**, pega la *Project URL* y la clave *publishable* (nunca la *secret*).
+
+Hecho con React + Vite.

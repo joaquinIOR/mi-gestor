@@ -37,7 +37,18 @@ Es opcional (Ajustes → Seguridad). Usa una **passkey** del teléfono con la ex
 
 La notificación fija de acceso rápido y los atajos del icono (**Gasto rápido** / **Ingreso rápido**) no muestran ningún dato: solo abren el formulario, y si la app está bloqueada primero piden el código o la huella.
 
-Todo usa la Web Crypto API del navegador. No hay servidor: los datos nunca salen del teléfono, salvo en la copia de seguridad que tú descargas.
+### Gastos en común (grupo)
+
+Es lo único que sale del teléfono, y solo si creas o te unes a un grupo:
+
+- Cada gasto, pago y perfil del grupo se **cifra en el teléfono** con la clave del grupo (AES-GCM 256, ligada al grupo y a la entrada) antes de enviarse a Supabase. El servidor solo ve un identificador de grupo al azar (256 bits), un identificador de entrada, la fecha de actualización y datos ilegibles.
+- La tabla del servidor no se puede leer directamente (seguridad a nivel de fila sin políticas). Solo se accede mediante dos funciones (`supabase/setup.sql`) que exigen conocer el identificador secreto del grupo y no permiten modificar entradas de otro grupo.
+- La app solo acepta servidores `https://*.supabase.co` y claves *publishable/anon* (rechaza la *secret*). La política de contenido (CSP) solo permite conectarse a Supabase.
+- La **invitación** (enlace o QR) contiene la clave del grupo después de `#`: esa parte nunca se envía a ningún servidor, pero **quien tenga el enlace puede ver y agregar gastos del grupo**. Compártelo solo por un canal privado.
+- Lo que llega del servidor se descifra, se valida campo por campo y se ignora si fue manipulado.
+- Tus gastos personales, notas y documentos **nunca** se comparten.
+
+Todo usa la Web Crypto API del navegador. Los datos personales no salen del teléfono, salvo en la copia de seguridad que tú descargas. Los gastos en común viajan cifrados (ver abajo).
 
 ## Límites (léelos)
 

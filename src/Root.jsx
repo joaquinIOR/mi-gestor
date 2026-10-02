@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import App from './App';
 import { cryptoAvailable } from './lib/crypto';
 import { uid } from './lib/format';
-import { clearQuickFromUrl, QUICK_TYPES, quickFromUrl, showQuickAccess } from './lib/quick';
+import { clearQuickFromUrl, inviteFromUrl, QUICK_TYPES, quickFromUrl, showQuickAccess } from './lib/quick';
 import { DEFAULT_SETTINGS } from './lib/settings';
 import { DEFAULT_PALETTE, PALETTES } from './lib/themes';
 import { useLocalState } from './lib/storage';
@@ -21,6 +21,9 @@ export default function Root() {
     const type = quickFromUrl();
     return type ? { type, id: uid() } : null;
   });
+
+  // Invitación a un grupo compartido: se atiende al desbloquear (o tras crear el código).
+  const [invite, setInvite] = useState(inviteFromUrl);
 
   useEffect(() => {
     clearQuickFromUrl();
@@ -75,10 +78,21 @@ export default function Root() {
       <LockScreen
         wipeOnFailures={settings.wipeOnFailures}
         quickType={quick?.type}
+        invited={!!invite}
         onUnlock={setSession}
         onWiped={() => setHasVault(false)}
       />
     );
   }
-  return <App session={session} settings={settings} setSettings={setSettings} quick={quick} onLock={lock} />;
+  return (
+    <App
+      session={session}
+      settings={settings}
+      setSettings={setSettings}
+      quick={quick}
+      invite={invite}
+      onInviteHandled={() => setInvite(null)}
+      onLock={lock}
+    />
+  );
 }

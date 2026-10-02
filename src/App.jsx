@@ -1,16 +1,19 @@
-import { useCallback, useEffect, useState } from 'react';
-import { ArrowLeftRight, CalendarDays, House, IdCard, Lock, Plus, Settings as SettingsIcon, StickyNote } from 'lucide-react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { ArrowLeftRight, CalendarDays, House, IdCard, Lock, Plus, Settings as SettingsIcon, StickyNote, Users } from 'lucide-react';
 import BudgetAlert from './components/BudgetAlert';
 import MovementForm from './components/MovementForm';
 import Sheet from './components/Sheet';
 import { backgroundAllowed } from './lib/autolock';
 import { exportBackup } from './lib/backup';
 import { budgetAlert, monthSpent } from './lib/budget';
+import { formatMoney } from './lib/format';
 import { notifyDueReminders } from './lib/notify';
+import { applySync, syncGroup, upsertLocal } from './lib/shared';
 import { DEFAULT_SETTINGS } from './lib/settings';
 import { EMPTY_STATE } from './lib/store';
 import CalendarView from './views/CalendarView';
 import Documents from './views/Documents';
+import Group from './views/Group';
 import Home from './views/Home';
 import Movements from './views/Movements';
 import Notes from './views/Notes';
@@ -18,21 +21,26 @@ import Settings from './views/Settings';
 
 const TABS = [
   { id: 'home', label: 'Inicio', icon: House },
-  { id: 'movements', label: 'Movimientos', icon: ArrowLeftRight },
+  { id: 'movements', label: 'Historial', title: 'Movimientos', icon: ArrowLeftRight },
   { id: 'calendar', label: 'Calendario', icon: CalendarDays },
-  { id: 'documents', label: 'Documentos', icon: IdCard },
+  { id: 'group', label: 'Grupo', title: 'Gastos en común', icon: Users },
+  { id: 'documents', label: 'Docs', title: 'Documentos', icon: IdCard },
   { id: 'notes', label: 'Notas', icon: StickyNote },
 ];
 
 const MIN_IDLE_MS = 60 * 1000;
+const SYNC_EVERY_MS = 4000;
 
-export default function App({ session, settings, setSettings, quick, onLock }) {
+export default function App({ session, settings, setSettings, quick, invite, onInviteHandled, onLock }) {
   const { store } = session;
-  const [tab, setTab] = useState('home');
+  const [tab, setTab] = useState(invite ? 'group' : 'home');
   const [movements, setMovements] = useState(session.state.movements ?? []);
   const [notes, setNotes] = useState(session.state.notes ?? []);
   const [categories, setCategories] = useState(session.state.categories ?? EMPTY_STATE.categories);
   const [budget, setBudget] = useState(session.state.budget ?? null);
+  const [groups, setGroups] = useState(session.state.groups ?? []);
+  const [syncInfo, setSyncInfo] = useState({});
+  const [toast, setToast] = useState(null);
   const [saveError, setSaveError] = useState(false);
   const [cursor, setCursor] = useState(() => {
     const now = new Date();
@@ -52,10 +60,78 @@ export default function App({ session, settings, setSettings, quick, onLock }) {
   // Cada cambio se guarda cifrado.
   useEffect(() => {
     store
-      .saveState({ movements, notes, categories, budget })
+      .saveState({ movements, notes, categories, budget, groups })
       .then(() => setSaveError(false))
       .catch(() => setSaveError(true));
-  }, [store, movements, notes, categories, budget]);
+  }, [store, movements, notes, categories, budget, groups]);
+
+  // --- Gastos en común: sincronización cifrada con el servidor ---
+  const groupsRef = useRef(groups);
+  const syncing = useRef(false);
+  useEffect(() => {
+    groupsRef.current = groups;
+  }, [groups]);
+
+  const runSync = useCallback(async () => {
+    if (syncing.current || document.visibilityState !== 'visible') return;
+    syncing.current = true;
+    try {
+      for (const snapshot of groupsRef.current) {
+        try {
+          const result = await syncGroup(snapshot);
+          const current = groupsRef.current.find((g) => g.id === result.id);
+          if (!current) continue;
+          const { group: merged, news } = applySync(current, result);
+          const changed = result.pushed.length || result.cursor !== current.cursor || news.length;
+          if (changed || result.incoming.length) setGroups((gs) => gs.map((g) => (g.id === result.id ? applySync(g, result).group : g)));
+          setSyncInfo((info) => ({ ...info, [result.id]: { at: Date.now(), error: null } }));
+          const latest = news[news.length - 1];
+          if (latest) {
+            const who = merged.entries[latest.createdBy ?? latest.id]?.name ?? latest.name ?? 'Alguien';
+            const text =
+              latest.kind === 'member'
+                ? `${latest.name} se unió a «${current.name}»`
+                : latest.kind === 'settle'
+                  ? `${who} registró un pago de ${formatMoney(latest.amount, settings.currency)}`
+                  : `${who} agregó «${latest.description || latest.category}» · ${formatMoney(latest.amount, settings.currency)}`;
+            setToast({ text, at: Date.now() });
+            navigator.vibrate?.(60);
+          }
+        } catch (err) {
+          setSyncInfo((info) => ({ ...info, [snapshot.id]: { at: info[snapshot.id]?.at ?? null, error: err.message } }));
+        }
+      }
+    } finally {
+      syncing.current = false;
+    }
+  }, [settings.currency]);
+
+  useEffect(() => {
+    if (!groups.length) return;
+    runSync();
+    const timer = setInterval(runSync, SYNC_EVERY_MS);
+    document.addEventListener('visibilitychange', runSync);
+    return () => {
+      clearInterval(timer);
+      document.removeEventListener('visibilitychange', runSync);
+    };
+  }, [groups.length, runSync]);
+
+  useEffect(() => {
+    if (!toast) return;
+    const timer = setTimeout(() => setToast(null), 4500);
+    return () => clearTimeout(timer);
+  }, [toast]);
+
+  const addGroup = (group) => {
+    setGroups((gs) => [...gs.filter((g) => g.id !== group.id), group]);
+    onInviteHandled();
+  };
+  const saveSharedEntry = (groupId, entry) => {
+    setGroups((gs) => gs.map((g) => (g.id === groupId ? upsertLocal(g, entry) : g)));
+    setTimeout(runSync, 50);
+  };
+  const leaveGroup = (groupId) => setGroups((gs) => gs.filter((g) => g.id !== groupId));
 
   // Comprueba los recordatorios al abrir la app y cada vez que vuelve a primer plano.
   useEffect(() => {
@@ -144,6 +220,7 @@ export default function App({ session, settings, setSettings, quick, onLock }) {
     setNotes(data.notes);
     setCategories(data.categories);
     setBudget(data.budget);
+    setGroups(data.groups);
   };
   const resetAll = async () => {
     await store.clearDocuments();
@@ -151,6 +228,7 @@ export default function App({ session, settings, setSettings, quick, onLock }) {
     setNotes([]);
     setCategories(EMPTY_STATE.categories);
     setBudget(null);
+    setGroups([]);
   };
 
   const views = {
@@ -182,6 +260,19 @@ export default function App({ session, settings, setSettings, quick, onLock }) {
       />
     ),
     documents: <Documents store={store} />,
+    group: (
+      <Group
+        groups={groups}
+        syncInfo={syncInfo}
+        invite={invite}
+        currency={settings.currency}
+        categories={categories}
+        onAddGroup={addGroup}
+        onSaveEntry={saveSharedEntry}
+        onLeave={leaveGroup}
+        onSyncNow={runSync}
+      />
+    ),
     notes: <Notes notes={notes} setNotes={setNotes} />,
   };
 
@@ -192,7 +283,7 @@ export default function App({ session, settings, setSettings, quick, onLock }) {
       <header className="topbar">
         <div>
           <p className="eyebrow">Mi Gestor</p>
-          <h1>{current.label}</h1>
+          <h1>{current.title ?? current.label}</h1>
         </div>
         <div className="topbar-actions">
           <button type="button" className="icon-btn" onClick={onLock} aria-label="Bloquear">
@@ -246,6 +337,12 @@ export default function App({ session, settings, setSettings, quick, onLock }) {
         </Sheet>
       )}
 
+      {toast && (
+        <div className="toast" role="status" onClick={() => { setToast(null); setTab('group'); }}>
+          <Users size={18} /> {toast.text}
+        </div>
+      )}
+
       {alert && (
         <BudgetAlert
           alert={alert}
@@ -264,7 +361,7 @@ export default function App({ session, settings, setSettings, quick, onLock }) {
           <Settings
             settings={settings}
             onChange={(patch) => setSettings((s) => ({ ...DEFAULT_SETTINGS, ...s, ...patch }))}
-            onExport={(password) => exportBackup(store, { movements, notes, categories, budget }, password)}
+            onExport={(password) => exportBackup(store, { movements, notes, categories, budget, groups }, password)}
             onImport={importData}
             onReset={resetAll}
             onLock={onLock}

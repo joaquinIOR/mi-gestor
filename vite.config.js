@@ -8,7 +8,8 @@ const CSP = [
   "style-src 'self'",
   "img-src 'self' blob:",
   "font-src 'self'",
-  "connect-src 'self'",
+  // Solo se permite conectar con la propia app y con Supabase (gastos en común, cifrados).
+  `connect-src 'self' https://*.supabase.co${process.env.CSP_EXTRA_CONNECT ? ` ${process.env.CSP_EXTRA_CONNECT}` : ''}`,
   "manifest-src 'self'",
   "worker-src 'self'",
   "object-src 'none'",

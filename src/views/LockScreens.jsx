@@ -89,7 +89,7 @@ export function SetupScreen({ onReady }) {
   );
 }
 
-export function LockScreen({ wipeOnFailures, quickType, onUnlock, onWiped }) {
+export function LockScreen({ wipeOnFailures, quickType, invited, onUnlock, onWiped }) {
   const [code, setCode] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
@@ -185,7 +185,11 @@ export function LockScreen({ wipeOnFailures, quickType, onUnlock, onWiped }) {
         </span>
         <h1>Mi Gestor</h1>
         <p className="muted">
-          {quickType ? `Desbloquea para registrar un ${quickType === 'income' ? 'ingreso' : 'gasto'}.` : 'Escribe tu código para desbloquear.'}
+          {invited
+            ? 'Desbloquea para unirte al grupo al que te invitaron.'
+            : quickType
+              ? `Desbloquea para registrar un ${quickType === 'income' ? 'ingreso' : 'gasto'}.`
+              : 'Escribe tu código para desbloquear.'}
         </p>
         {hasBiometric && (
           <button type="button" className="btn primary" onClick={unlockBiometric} disabled={busy}>

@@ -8,8 +8,11 @@ export function quickFromUrl() {
 }
 
 export function clearQuickFromUrl() {
-  if (window.location.search) window.history.replaceState(null, '', window.location.pathname);
+  if (window.location.search || window.location.hash) window.history.replaceState(null, '', window.location.pathname);
 }
+
+// Invitación a un grupo: llega en el "#" del enlace (esa parte nunca se envía a ningún servidor).
+export const inviteFromUrl = () => (window.location.hash.startsWith('#join=') ? window.location.hash : null);
 
 async function registration() {
   if (!('serviceWorker' in navigator)) return null;

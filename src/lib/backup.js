@@ -1,6 +1,7 @@
 import { decryptJson, deriveKey, encryptJson, fromBase64, KDF_ITERATIONS, randomBytes, toBase64 } from './crypto';
 import { todayKey } from './dates';
 import { blobToDataUrl } from './images';
+import { sanitizeGroups } from './shared';
 import { sanitizeBudget, sanitizeCategories, sanitizeDocuments, sanitizeMovements, sanitizeNotes } from './validate';
 
 const APP_ID = 'mi-gestor';
@@ -68,6 +69,7 @@ export async function openBackup(json, password) {
     notes: sanitizeNotes(payload.notes),
     categories: sanitizeCategories(payload.categories),
     budget: sanitizeBudget(payload.budget),
+    groups: sanitizeGroups(payload.groups),
     documents: sanitizeDocuments(payload.documents),
   };
 }
