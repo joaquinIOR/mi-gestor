@@ -3,6 +3,7 @@ export const PALETTES = [
   { id: 'menta', name: 'Menta', light: ['#0c7a70', '#0f766e'], dark: ['#0f766e', '#2dd4bf'] },
   { id: 'rosa', name: 'Rosa pastel', light: ['#fbd5e3', '#b0305f'], dark: ['#7a2a4d', '#f5a3c3'] },
   { id: 'lavanda', name: 'Lavanda', light: ['#e2d9fb', '#6142b8'], dark: ['#4c3a8f', '#c4b5fd'] },
+  { id: 'celeste', name: 'Celeste pastel', light: ['#d4f2fa', '#0e6f86'], dark: ['#1b6577', '#8be0f2'] },
   { id: 'cielo', name: 'Cielo', light: ['#d4e9fb', '#1d67a6'], dark: ['#1e4f80', '#93c5fd'] },
   { id: 'durazno', name: 'Durazno', light: ['#ffdfcc', '#a54a17'], dark: ['#8a4320', '#fdba8c'] },
   { id: 'salvia', name: 'Salvia', light: ['#d8eada', '#3a7149'], dark: ['#3a6b47', '#a7d7b0'] },
