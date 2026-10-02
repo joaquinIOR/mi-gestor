@@ -1,3 +1,5 @@
+import crypto from 'node:crypto'
+import fs from 'node:fs'
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 
@@ -25,11 +27,35 @@ const securityPolicy = {
     html.replace('<meta charset="UTF-8" />', `<meta charset="UTF-8" />\n    <meta http-equiv="Content-Security-Policy" content="${CSP}" />`),
 }
 
+// Genera sw.js con la versión y la lista exacta de archivos de esta compilación, para que la app
+// abra sin conexión desde la primera visita y cada publicación se instale completa de una vez.
+const serviceWorker = {
+  name: 'service-worker',
+  apply: 'build',
+  enforce: 'post',
+  generateBundle(_, bundle) {
+    const files = Object.keys(bundle).filter((f) => f.startsWith('assets/'))
+    const icons = fs.readdirSync('public/icons').map((f) => `icons/${f}`)
+    const precache = ['./', 'manifest.webmanifest', ...icons, ...files]
+    const template = fs.readFileSync('src/service-worker.js', 'utf8')
+    const hash = crypto.createHash('sha256').update(template)
+    for (const name of Object.keys(bundle).sort()) {
+      const item = bundle[name]
+      hash.update(name).update(item.type === 'chunk' ? item.code : item.source)
+    }
+    hash.update(fs.readFileSync('public/manifest.webmanifest'))
+    const source = template
+      .replace('__VERSION__', hash.digest('hex').slice(0, 12))
+      .replace('[/* __PRECACHE__ */]', JSON.stringify(precache))
+    this.emitFile({ type: 'asset', fileName: 'sw.js', source })
+  },
+}
+
 // https://vite.dev/config/
 export default defineConfig({
   // BASE_PATH permite publicar en un subdirectorio (p. ej. GitHub Pages: /mi-gestor/)
   base: process.env.BASE_PATH || '/',
-  plugins: [react(), securityPolicy],
+  plugins: [react(), securityPolicy, serviceWorker],
   // host: true deja abrir la app desde el teléfono en la misma red Wi-Fi
   server: { host: true },
   preview: { host: true },

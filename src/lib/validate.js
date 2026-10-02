@@ -1,12 +1,14 @@
 import { DOC_TYPES } from './documentTypes';
-import { uid } from './format';
+import { MAX_AMOUNT, uid } from './format';
 import { MAX_REMINDER_DAYS } from './recurrence';
 
 // Todo lo que entra desde un archivo externo pasa por aquí: se descartan tipos y valores inesperados.
 export const NOTE_COLORS = ['plain', 'yellow', 'green', 'blue', 'pink', 'purple'];
-const FREQUENCIES = ['once', 'daily', 'weekly', 'monthly'];
+const FREQUENCIES = ['once', 'daily', 'weekly', 'monthly', 'yearly'];
 const IMAGE_DATA_URL = /^data:(image\/(?:jpeg|png|webp));base64,([A-Za-z0-9+/]+={0,2})$/;
 const MAX_ITEMS = 20000;
+export const MAX_DOCUMENTS = 200;
+export const NOTE_BODY_MAX = 20000;
 
 const text = (value, max) => (typeof value === 'string' ? value.slice(0, max) : '');
 const asList = (value) => (Array.isArray(value) ? value.slice(0, MAX_ITEMS) : []);
@@ -24,7 +26,7 @@ export function sanitizeMovements(list) {
     if (!isObject(m)) return [];
     const amount = Number(m.amount);
     const category = text(m.category, 24).trim();
-    if (!['income', 'expense'].includes(m.type) || !(amount > 0 && amount < 1e12) || !isDateKey(m.date) || !category) return [];
+    if (!['income', 'expense'].includes(m.type) || !(amount > 0 && amount < MAX_AMOUNT) || !isDateKey(m.date) || !category) return [];
     const frequency = FREQUENCIES.includes(m.frequency) ? m.frequency : 'once';
     return [
       {
@@ -38,6 +40,7 @@ export function sanitizeMovements(list) {
         until: frequency !== 'once' && isDateKey(m.until) ? m.until : null,
         reminder: Number.isInteger(m.reminder) && m.reminder >= 0 && m.reminder <= MAX_REMINDER_DAYS ? m.reminder : null,
         card: text(m.card, 40).trim() || null,
+        ...(asList(m.paidDates).some(isDateKey) ? { paidDates: asList(m.paidDates).filter(isDateKey).slice(-24) } : {}),
         createdAt: Number.isFinite(m.createdAt) ? m.createdAt : Date.now(),
       },
     ];
@@ -48,7 +51,7 @@ export function sanitizeNotes(list) {
   return asList(list).flatMap((n) => {
     if (!isObject(n)) return [];
     const title = text(n.title, 60).trim();
-    const body = text(n.body, 5000).trim();
+    const body = text(n.body, NOTE_BODY_MAX).trim();
     if (!title && !body) return [];
     return [
       {
@@ -94,7 +97,7 @@ export function imageFromDataUrl(value) {
 
 export function sanitizeDocuments(list) {
   return asList(list)
-    .slice(0, 200)
+    .slice(0, MAX_DOCUMENTS)
     .flatMap((doc) => {
       const meta = sanitizeDocumentMeta(doc);
       if (!meta) return [];
@@ -105,5 +108,5 @@ export function sanitizeDocuments(list) {
 
 export const sanitizeBudget = (value) => {
   const amount = Number(value);
-  return amount > 0 && amount < 1e12 ? Math.round(amount * 100) / 100 : null;
+  return amount > 0 && amount < MAX_AMOUNT ? Math.round(amount * 100) / 100 : null;
 };

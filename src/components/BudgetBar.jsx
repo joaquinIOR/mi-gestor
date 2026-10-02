@@ -1,8 +1,9 @@
 import { useState } from 'react';
 import { AlertTriangle, Pencil } from 'lucide-react';
+import AmountHint from './AmountHint';
 import { WARN_OPTIONS } from '../lib/budget';
 import { categoryColor, categoryEmoji, categorySlot } from '../lib/categories';
-import { formatMoney, parseAmount } from '../lib/format';
+import { formatMoney, MAX_AMOUNT, parseAmount } from '../lib/format';
 
 const percent = (value) => `${value.toLocaleString('es-CL', { maximumFractionDigits: value < 10 ? 1 : 0 })} %`;
 
@@ -13,7 +14,7 @@ function BudgetForm({ budget, income, currency, settings, onSettings, onSave, on
   const submit = (e) => {
     e.preventDefault();
     const amount = parseAmount(value);
-    if (!(amount > 0 && amount < 1e12)) return setError('Escribe un monto mayor que 0.');
+    if (!(amount > 0 && amount < MAX_AMOUNT)) return setError(amount >= MAX_AMOUNT ? 'El monto es demasiado grande.' : 'Escribe un monto mayor que 0.');
     onSave(Math.round(amount * 100) / 100);
   };
 
@@ -31,6 +32,7 @@ function BudgetForm({ budget, income, currency, settings, onSettings, onSave, on
             autoFocus
           />
         </div>
+        <AmountHint value={value} currency={currency} />
       </label>
       {income > 0 && (
         <button type="button" className="chip" onClick={() => setValue(String(income))}>
@@ -52,7 +54,7 @@ function BudgetForm({ budget, income, currency, settings, onSettings, onSave, on
               <button
                 type="button"
                 key={o.value}
-                className={settings.budgetWarnAt === o.value ? 'on' : ''}
+                className={settings.budgetWarnAt === o.value ? 'on' : ''} aria-pressed={settings.budgetWarnAt === o.value}
                 onClick={() => onSettings({ budgetWarnAt: o.value })}
               >
                 {o.label}

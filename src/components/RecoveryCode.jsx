@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { Check, Copy, KeyRound } from 'lucide-react';
+import { copySecret } from '../lib/clipboard';
 
 // Muestra el código de recuperación una sola vez y pide confirmar que se guardó.
 export default function RecoveryCode({ code, onDone }) {
@@ -8,7 +9,7 @@ export default function RecoveryCode({ code, onDone }) {
 
   const copy = async () => {
     try {
-      await navigator.clipboard.writeText(code);
+      await copySecret(code, 2 * 60 * 1000);
       setCopied(true);
     } catch {
       setCopied(false);
@@ -31,7 +32,7 @@ export default function RecoveryCode({ code, onDone }) {
         ))}
       </div>
       <button type="button" className="btn" onClick={copy}>
-        {copied ? <Check size={18} /> : <Copy size={18} />} {copied ? 'Copiado' : 'Copiar'}
+        {copied ? <Check size={18} /> : <Copy size={18} />} {copied ? 'Copiado (se borrará en 2 min)' : 'Copiar'}
       </button>
       <label className="toggle">
         <span className="row-main">
@@ -43,6 +44,7 @@ export default function RecoveryCode({ code, onDone }) {
       <button type="button" className="btn primary" disabled={!saved} onClick={onDone}>
         Continuar
       </button>
+      {!saved && <p className="hint">Activa «Ya lo guardé en un lugar seguro» para continuar.</p>}
     </div>
   );
 }

@@ -5,7 +5,9 @@ import Sheet from '../components/Sheet';
 import { formatShort, todayKey } from '../lib/dates';
 import { DOC_TYPES, docType, expiryStatus, maskNumber } from '../lib/documentTypes';
 import { uid } from '../lib/format';
-import { allowBackgroundBriefly } from '../lib/autolock';
+import { allowBackgroundBriefly, endBackgroundAllowance } from '../lib/autolock';
+import { useBackClose } from '../lib/back';
+import { copySecret } from '../lib/clipboard';
 import { compressImage } from '../lib/images';
 
 const MAX_PHOTOS = 4;
@@ -13,12 +15,13 @@ const MAX_PHOTO_BYTES = 30 * 1024 * 1024;
 const CLIPBOARD_CLEAR_MS = 30 * 1000;
 const REVEAL_MS = 15 * 1000;
 
-export default function Documents({ store }) {
+export default function Documents({ store, onChanged }) {
   const [docs, setDocs] = useState(null);
   const [error, setError] = useState('');
   const [editing, setEditing] = useState(null);
   const [viewingId, setViewingId] = useState(null);
   const [fullscreen, setFullscreen] = useState(null);
+  useBackClose(() => setFullscreen(null), !!fullscreen);
 
   const reload = useCallback(
     () =>
@@ -40,6 +43,7 @@ export default function Documents({ store }) {
     await reload();
     setEditing(null);
     setViewingId(doc.id);
+    onChanged?.();
   };
 
   const remove = async (id) => {
@@ -47,6 +51,7 @@ export default function Documents({ store }) {
     await store.deleteDocument(id);
     setViewingId(null);
     reload();
+    onChanged?.();
   };
 
   return (
@@ -103,7 +108,7 @@ export default function Documents({ store }) {
       )}
 
       {fullscreen && (
-        <div className="viewer" onClick={() => setFullscreen(null)}>
+        <div className="viewer" role="dialog" aria-modal="true" aria-label="Foto del documento" onClick={() => setFullscreen(null)}>
           <button type="button" className="icon-btn viewer-close" aria-label="Cerrar">
             <X size={24} />
           </button>
@@ -128,13 +133,10 @@ function DocumentDetail({ doc, today, onImage, onEdit, onDelete }) {
 
   const copy = async () => {
     try {
-      await navigator.clipboard.writeText(doc.number);
-      setCopied(true);
       // Se limpia el portapapeles para que otras apps no puedan leer el número después.
-      setTimeout(() => {
-        setCopied(false);
-        navigator.clipboard.writeText('').catch(() => {});
-      }, CLIPBOARD_CLEAR_MS);
+      await copySecret(doc.number, CLIPBOARD_CLEAR_MS);
+      setCopied(true);
+      setTimeout(() => setCopied(false), CLIPBOARD_CLEAR_MS);
     } catch {
       setReveal(true);
     }
@@ -207,6 +209,7 @@ function DocumentForm({ initial, onSave }) {
   const set = (patch) => setForm((f) => ({ ...f, ...patch }));
 
   const addPhotos = async (e) => {
+    endBackgroundAllowance();
     const picked = [...e.target.files];
     e.target.value = '';
     const files = picked.filter((f) => f.type.startsWith('image/') && f.size <= MAX_PHOTO_BYTES).slice(0, MAX_PHOTOS - images.length);
@@ -214,7 +217,9 @@ function DocumentForm({ initial, onSave }) {
     if (!files.length) return;
     setBusy(true);
     try {
-      const blobs = await Promise.all(files.map((f) => compressImage(f)));
+      // De a una: varias fotos grandes a la vez pueden agotar la memoria del teléfono.
+      const blobs = [];
+      for (const f of files) blobs.push(await compressImage(f));
       setImages((list) => [...list, ...blobs]);
     } catch {
       setError('No se pudo leer una de las fotos.');
@@ -249,7 +254,7 @@ function DocumentForm({ initial, onSave }) {
         <span>Tipo</span>
         <div className="chips">
           {DOC_TYPES.map((t) => (
-            <button type="button" key={t.value} className={`chip ${form.type === t.value ? 'on' : ''}`} onClick={() => set({ type: t.value })}>
+            <button type="button" key={t.value} className={`chip ${form.type === t.value ? 'on' : ''}`} aria-pressed={form.type === t.value} onClick={() => set({ type: t.value })}>
               <t.icon size={14} /> {t.label}
             </button>
           ))}
@@ -261,7 +266,7 @@ function DocumentForm({ initial, onSave }) {
       </label>
       <label className="field">
         <span>Número (opcional)</span>
-        <input autoComplete="off" maxLength={40} value={form.number} onChange={(e) => set({ number: e.target.value })} />
+        <input autoComplete="off" autoCapitalize="characters" autoCorrect="off" spellCheck={false} maxLength={40} value={form.number} onChange={(e) => set({ number: e.target.value })} />
       </label>
       <label className="field">
         <span>Vencimiento (opcional)</span>

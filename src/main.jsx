@@ -23,8 +23,23 @@ window.addEventListener('beforeinstallprompt', (e) => {
   window.deferredInstallPrompt = e;
 });
 
+// Service worker: la app queda guardada en el teléfono. Cuando se publica una versión nueva, se instala
+// sola y la app avisa (evento "mg-update") para recargar.
 if ('serviceWorker' in navigator && import.meta.env.PROD) {
   window.addEventListener('load', () => {
-    navigator.serviceWorker.register(`${import.meta.env.BASE_URL}sw.js`);
+    let controlled = !!navigator.serviceWorker.controller;
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      if (controlled) window.dispatchEvent(new Event('mg-update'));
+      controlled = true;
+    });
+    navigator.serviceWorker
+      .register(`${import.meta.env.BASE_URL}sw.js`)
+      .then((reg) => {
+        // Android puede dejar la app abierta por días: busca versiones nuevas cada vez que vuelve a primer plano.
+        document.addEventListener('visibilitychange', () => {
+          if (document.visibilityState === 'visible') reg.update().catch(() => {});
+        });
+      })
+      .catch(() => {});
   });
 }

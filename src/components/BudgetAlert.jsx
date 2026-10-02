@@ -1,11 +1,13 @@
 import { useEffect } from 'react';
 import { AlertTriangle, TrendingUp } from 'lucide-react';
+import { useBackClose } from '../lib/back';
 import { formatMoney } from '../lib/format';
 
 const percent = (value) => `${Math.round(value).toLocaleString('es-CL')} %`;
 
 export default function BudgetAlert({ alert, currency, onClose, onShow }) {
   const over = alert.level === 2;
+  useBackClose(onClose);
 
   useEffect(() => {
     navigator.vibrate?.(over ? [200, 100, 200] : 150);

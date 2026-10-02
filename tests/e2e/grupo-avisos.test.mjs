@@ -113,7 +113,13 @@ await B.getByRole('button', { name: 'Gasto en común' }).click();
 await B.getByPlaceholder('0').fill('5.000');
 await B.getByRole('dialog').getByRole('button', { name: 'Guardar' }).click();
 await new Promise((r) => setTimeout(r, 6000));
-ok((await pushLog()).length === before, 'no satura: un solo aviso cada 20 segundos por grupo');
+ok((await pushLog()).length === before, 'no satura: un solo aviso cada 20 segundos por persona');
+
+// Pero si enseguida otra persona (Tomás) cambia algo, a Valentina sí le llega su aviso.
+await A.getByRole('button', { name: 'Gasto en común' }).click();
+await A.getByPlaceholder('0').fill('7.000');
+await A.getByRole('dialog').getByRole('button', { name: 'Guardar' }).click();
+ok(!!(await waitFor(async () => (await pushLog()).find((r) => endpointB.endsWith(r.path)))), 'el cambio de otra persona dentro de esos 20 s también avisa');
 
 // Recordatorio programado: gasto personal con aviso 1 día antes
 await A.getByRole('navigation').getByRole('button', { name: 'Inicio' }).click();
@@ -129,6 +135,19 @@ ok(!!scheduled, 'el recordatorio queda programado en el servidor (solo la hora)'
 ok(/09:00:00/.test(sql(`select to_char(send_at at time zone '${Intl.DateTimeFormat().resolvedOptions().timeZone}', 'HH24:MI:SS') from push_schedule where endpoint = '${endpointA}' limit 1`)), 'programado a las 9:00 del día del aviso');
 ok(!/15000|Servicios/.test(sql('select coalesce(string_agg(endpoint || send_at::text, \'\'), \'\') from push_schedule')), 'el servidor no guarda montos ni descripciones');
 
+// Con la clave pública (la que viaja en la invitación) no se puede leer la configuración ni las direcciones.
+const anonRpc = (fn, body = {}) => fetch(`${SERVER}/rest/v1/rpc/${fn}`, { method: 'POST', headers: { apikey: 'sb_publishable_test', 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+const denied = await Promise.all([
+  anonRpc('mg_push_config'),
+  anonRpc('mg_push_due'),
+  anonRpc('mg_push_targets', { p_group: 'a'.repeat(64), p_exclude_tag: 'x' }),
+  anonRpc('mg_push_remove', { p_endpoint: endpointA }),
+  anonRpc('mg_push_set_vapid', { p_public: 'x', p_private: 'y' }),
+]);
+ok(denied.every((r) => r.status === 401 || r.status === 403), 'la clave pública no puede usar las funciones internas de avisos ' + JSON.stringify(denied.map((r) => r.status)));
+const tableRead = await fetch(`${SERVER}/rest/v1/push_config?select=*`, { headers: { apikey: 'sb_publishable_test' } });
+ok(tableRead.status === 401 || tableRead.status === 403, 'la clave pública no puede leer las tablas de avisos (' + tableRead.status + ')');
+
 // La tarea programada envía los que tocan
 sql(`update push_schedule set send_at = now() - interval '1 minute' where endpoint = '${endpointA}'`);
 const secret = sql('select cron_secret from push_config');
@@ -143,6 +162,7 @@ ok(sql(`select count(*) from push_schedule where send_at <= now()`) === '0', 'ca
 const gid = sql('select group_id from push_subscriptions limit 1');
 sql(`insert into push_subscriptions values ('https://localhost:54340/gone/viejo', '${gid}', '${'f'.repeat(32)}', (select p256dh from push_subscriptions limit 1), (select auth from push_subscriptions limit 1), now())`);
 sql("update push_groups set last_notified = now() - interval '1 minute'");
+sql("update push_senders set last_notified = now() - interval '1 minute'");
 await fetch(`${SERVER}/functions/v1/mg-push`, { method: 'POST', headers: { apikey: 'x', 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'notify', group: gid, tag: 'e'.repeat(32) }) });
 ok(sql("select count(*) from push_subscriptions where endpoint like '%/gone/%'") === '0', 'los teléfonos que ya no aceptan avisos se borran');
 

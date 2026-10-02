@@ -9,6 +9,7 @@ export const MIN_CODE_LENGTH = 6;
 export const WIPE_AFTER_FAILURES = 10;
 // Espera (en segundos) tras N intentos fallidos seguidos.
 const DELAYS = [0, 0, 0, 0, 0, 30, 60, 300, 900];
+export const MAX_WAIT_MS = DELAYS[DELAYS.length - 1] * 1000;
 
 export class WrongCodeError extends Error {}
 
@@ -24,11 +25,12 @@ export function readVault() {
 const writeVault = (vault) => localStorage.setItem(VAULT_KEY, JSON.stringify(vault));
 
 // Conserva el acceso biométrico: la clave de datos no cambia al cambiar el código.
-async function storeDataKey(dataKey, code) {
+async function storeDataKey(dataKey, code, { fresh = false } = {}) {
   const salt = randomBytes(16);
   const wrapped = await wrapDataKey(dataKey, await deriveKey(code, salt));
-  // Conserva la huella y el código de recuperación: ambos protegen la misma clave de datos.
-  const { biometric, recovery } = readVault() ?? {};
+  // Conserva la huella y el código de recuperación: ambos protegen la misma clave de datos
+  // (salvo en una bóveda nueva, que nunca hereda los de otra clave).
+  const { biometric, recovery } = fresh ? {} : readVault() ?? {};
   writeVault({
     v: 1,
     salt: toBase64(salt),
@@ -50,12 +52,12 @@ async function openDataKey(code, extractable = false) {
   }
 }
 
-// Crea la bóveda y su código de recuperación (se muestra una sola vez).
+// Crea la bóveda. El código de recuperación se prepara aquí, pero solo queda activo con commitRecovery,
+// cuando la persona confirma que lo anotó (se muestra una sola vez).
 export async function createVault(code) {
   const dataKey = await generateDataKey();
-  await storeDataKey(dataKey, code);
-  const recoveryCode = await storeRecovery(dataKey);
-  return { key: await openDataKey(code), recoveryCode };
+  await storeDataKey(dataKey, code, { fresh: true });
+  return { key: await openDataKey(code), recovery: await prepareRecovery(dataKey) };
 }
 
 export const unlockVault = (code) => openDataKey(code);
@@ -76,26 +78,31 @@ const RECOVERY_PURPOSE = 'mi-gestor/recovery/v1';
 export const normalizeRecoveryCode = (text) => String(text ?? '').toUpperCase().replace(/[^A-Z0-9]/g, '');
 const recoveryKey = (code) => deriveKeyFromSecret(new TextEncoder().encode(normalizeRecoveryCode(code)), RECOVERY_PURPOSE);
 
-async function storeRecovery(dataKey) {
+async function prepareRecovery(dataKey) {
   const chars = Array.from(randomBytes(32), (b) => RECOVERY_ALPHABET[b % 32]).join('');
   const code = chars.match(/.{4}/g).join('-');
-  const wrapped = await wrapDataKey(dataKey, await recoveryKey(code));
-  writeVault({ ...readVault(), recovery: wrapped });
-  return code;
+  return { code, wrapped: await wrapDataKey(dataKey, await recoveryKey(code)) };
+}
+
+// Activa el código de recuperación (y deja sin efecto el anterior, si había).
+export function commitRecovery(recovery) {
+  const vault = readVault();
+  if (!vault) throw new Error('No hay bóveda');
+  writeVault({ ...vault, recovery: recovery.wrapped });
 }
 
 export const hasRecovery = () => !!readVault()?.recovery;
 
-// Crea (o reemplaza) el código de recuperación de una bóveda existente.
+// Prepara un código de recuperación nuevo para una bóveda existente (se activa con commitRecovery).
 export async function enableRecovery(code) {
-  return storeRecovery(await openDataKey(code, true));
+  return prepareRecovery(await openDataKey(code, true));
 }
 
 // Con el código de recuperación se define un código nuevo; los datos no cambian.
 export async function recoverAccess(recoveryCode, newCode) {
   const info = readVault()?.recovery;
   if (!info) throw new Error('No hay código de recuperación.');
-  if (normalizeRecoveryCode(recoveryCode).length !== 32) throw new WrongCodeError('El código de recuperación tiene 32 caracteres.');
+  if (normalizeRecoveryCode(recoveryCode).length !== 32) throw new Error('El código de recuperación tiene 32 caracteres.');
   let dataKey;
   try {
     dataKey = await unwrapDataKey(info, await recoveryKey(recoveryCode), true);
@@ -132,6 +139,26 @@ export async function unlockWithBiometric(readSecret) {
   }
 }
 
+// Con la huella también se puede cambiar el código olvidado o crear un código de recuperación (desde Ajustes).
+async function biometricDataKey(readSecret) {
+  const info = biometricInfo();
+  if (!info) throw new Error('La huella no está activada.');
+  const secret = await readSecret(info);
+  try {
+    return await unwrapDataKey(info, await deriveKeyFromSecret(secret, BIOMETRIC_PURPOSE), true);
+  } catch {
+    throw new Error('No se pudo verificar con la huella.');
+  }
+}
+
+export async function changeCodeWithBiometric(readSecret, next) {
+  await storeDataKey(await biometricDataKey(readSecret), next);
+}
+
+export async function enableRecoveryWithBiometric(readSecret) {
+  return prepareRecovery(await biometricDataKey(readSecret));
+}
+
 export function disableBiometric() {
   const vault = readVault();
   if (!vault) return;
@@ -149,9 +176,17 @@ export function getLockout() {
 
 export function registerFailure() {
   const failures = getLockout().failures + 1;
-  const next = { failures, until: Date.now() + DELAYS[Math.min(failures, DELAYS.length - 1)] * 1000 };
+  const at = Date.now();
+  const next = { failures, at, until: at + DELAYS[Math.min(failures, DELAYS.length - 1)] * 1000 };
   localStorage.setItem(LOCKOUT_KEY, JSON.stringify(next));
   return next;
+}
+
+// Segundos de espera. Nunca más que la espera máxima (aunque el reloj del teléfono se atrase), y si el
+// reloj se movió hacia atrás, la espera vuelve a contar desde el principio en vez de durar días.
+export function lockoutWait(lockout, now = Date.now()) {
+  const left = lockout.at && now < lockout.at ? lockout.until - lockout.at : lockout.until - now;
+  return Math.max(0, Math.ceil(Math.min(left, MAX_WAIT_MS) / 1000));
 }
 
 export const resetFailures = () => localStorage.removeItem(LOCKOUT_KEY);

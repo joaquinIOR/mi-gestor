@@ -1,7 +1,7 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Bell, Check, Copy, Download, Fingerprint, KeyRound, Lock, ShieldAlert, Smartphone, Tags, Trash2, Upload, Zap } from 'lucide-react';
-import { biometricErrorMessage, biometricSupported, registerBiometric } from '../lib/biometric';
-import { allowBackgroundBriefly } from '../lib/autolock';
+import { biometricErrorMessage, biometricSupported, readBiometricSecret, registerBiometric } from '../lib/biometric';
+import { allowBackgroundBriefly, endBackgroundAllowance } from '../lib/autolock';
 import { isEncryptedBackup, MIN_BACKUP_PASSWORD, openBackup, readBackupFile } from '../lib/backup';
 import RecoveryCode from '../components/RecoveryCode';
 import pushSql from '../../supabase/push.sql?raw';
@@ -15,12 +15,19 @@ import { PALETTES } from '../lib/themes';
 import {
   biometricInfo,
   changeCode,
+  changeCodeWithBiometric,
   codeWarning,
+  commitRecovery,
   disableBiometric,
   enableBiometric,
   enableRecovery,
+  enableRecoveryWithBiometric,
+  getLockout,
   hasRecovery,
+  lockoutWait,
   MIN_CODE_LENGTH,
+  registerFailure,
+  resetFailures,
   WIPE_AFTER_FAILURES,
   WrongCodeError,
 } from '../lib/vault';
@@ -45,7 +52,16 @@ function Toggle({ checked, onChange, label, description }) {
 
 const passwordProps = { type: 'password', autoCapitalize: 'off', autoCorrect: 'off', spellCheck: false, maxLength: 128 };
 
-function ChangeCodeForm({ onDone }) {
+// Los intentos con el código en Ajustes cuentan igual que en la pantalla de bloqueo (no sirven para adivinarlo).
+function attemptBlocked() {
+  const wait = lockoutWait(getLockout());
+  return wait > 0 ? `Demasiados intentos. Espera ${wait} s.` : '';
+}
+function codeFailed(onLock) {
+  if (lockoutWait(registerFailure()) > 0) onLock();
+}
+
+function ChangeCodeForm({ onDone, onLock }) {
   const [current, setCurrent] = useState('');
   const [next, setNext] = useState('');
   const [confirm, setConfirm] = useState('');
@@ -56,12 +72,30 @@ function ChangeCodeForm({ onDone }) {
     e.preventDefault();
     if (next.length < MIN_CODE_LENGTH) return setError(`El código nuevo debe tener al menos ${MIN_CODE_LENGTH} caracteres.`);
     if (next !== confirm) return setError('Los códigos nuevos no coinciden.');
+    if (attemptBlocked()) return setError(attemptBlocked());
     setBusy(true);
     try {
       await changeCode(current, next);
+      resetFailures();
       onDone('Código cambiado.');
     } catch (err) {
+      if (err instanceof WrongCodeError) codeFailed(onLock);
       setError(err instanceof WrongCodeError ? 'El código actual no es correcto.' : 'No se pudo cambiar el código.');
+      setBusy(false);
+    }
+  };
+  // ¿Olvidaste el código actual? Con la huella también se puede cambiar.
+  const withBiometric = async () => {
+    if (next.length < MIN_CODE_LENGTH) return setError(`El código nuevo debe tener al menos ${MIN_CODE_LENGTH} caracteres.`);
+    if (next !== confirm) return setError('Los códigos nuevos no coinciden.');
+    setBusy(true);
+    setError('');
+    try {
+      await changeCodeWithBiometric(readBiometricSecret, next);
+      resetFailures();
+      onDone('Código cambiado.');
+    } catch (err) {
+      setError(biometricErrorMessage(err));
       setBusy(false);
     }
   };
@@ -76,23 +110,31 @@ function ChangeCodeForm({ onDone }) {
       <button type="submit" className="btn primary" disabled={busy}>
         {busy ? 'Guardando…' : 'Cambiar código'}
       </button>
+      {biometricInfo() && (
+        <button type="button" className="btn ghost" onClick={withBiometric} disabled={busy}>
+          <Fingerprint size={18} /> No recuerdo el actual: usar huella / Face ID
+        </button>
+      )}
     </form>
   );
 }
 
-function BiometricForm({ onDone }) {
+function BiometricForm({ onDone, onLock }) {
   const [code, setCode] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
 
   const submit = async (e) => {
     e.preventDefault();
+    if (attemptBlocked()) return setError(attemptBlocked());
     setBusy(true);
     setError('');
     try {
       await enableBiometric(code, registerBiometric);
+      resetFailures();
       onDone('Huella / Face ID activado. La próxima vez podrás desbloquear con un toque.');
     } catch (err) {
+      if (err instanceof WrongCodeError) codeFailed(onLock);
       setError(err instanceof WrongCodeError ? 'El código no es correcto.' : biometricErrorMessage(err));
       setBusy(false);
     }
@@ -101,6 +143,10 @@ function BiometricForm({ onDone }) {
   return (
     <form className="subform" onSubmit={submit}>
       <p className="hint">Confirma tu código. Después el teléfono te pedirá la huella o la cara (puede pedirla dos veces).</p>
+      <p className="hint warn-text">
+        Ojo: el teléfono también puede aceptar su propio código de desbloqueo en lugar de la huella o la cara. Actívalo solo si nadie más
+        conoce el código de tu teléfono.
+      </p>
       <input {...passwordProps} autoComplete="current-password" placeholder="Tu código" value={code} onChange={(e) => setCode(e.target.value)} autoFocus />
       {error && <p className="error">{error}</p>}
       <button type="submit" className="btn primary" disabled={busy || !code}>
@@ -110,22 +156,46 @@ function BiometricForm({ onDone }) {
   );
 }
 
-function RecoveryForm({ onDone }) {
+function RecoveryForm({ onDone, onLock }) {
   const [code, setCode] = useState('');
   const [created, setCreated] = useState(null);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
 
-  if (created) return <RecoveryCode code={created} onDone={() => onDone('Código de recuperación guardado. El anterior, si había uno, ya no sirve.')} />;
+  // El código nuevo solo reemplaza al anterior cuando confirmas que lo guardaste.
+  if (created) {
+    return (
+      <RecoveryCode
+        code={created.code}
+        onDone={() => {
+          commitRecovery(created);
+          onDone('Código de recuperación guardado. El anterior, si había uno, ya no sirve.');
+        }}
+      />
+    );
+  }
 
   const submit = async (e) => {
     e.preventDefault();
+    if (attemptBlocked()) return setError(attemptBlocked());
     setBusy(true);
     setError('');
     try {
       setCreated(await enableRecovery(code));
+      resetFailures();
     } catch (err) {
+      if (err instanceof WrongCodeError) codeFailed(onLock);
       setError(err instanceof WrongCodeError ? 'El código no es correcto.' : 'No se pudo crear el código de recuperación.');
+      setBusy(false);
+    }
+  };
+  const withBiometric = async () => {
+    setBusy(true);
+    setError('');
+    try {
+      setCreated(await enableRecoveryWithBiometric(readBiometricSecret));
+    } catch (err) {
+      setError(biometricErrorMessage(err));
       setBusy(false);
     }
   };
@@ -138,17 +208,36 @@ function RecoveryForm({ onDone }) {
       <button type="submit" className="btn primary" disabled={busy || !code}>
         {busy ? 'Creando…' : 'Crear código de recuperación'}
       </button>
+      {biometricInfo() && (
+        <button type="button" className="btn ghost" onClick={withBiometric} disabled={busy}>
+          <Fingerprint size={18} /> Confirmar con huella / Face ID
+        </button>
+      )}
     </form>
   );
 }
 
 function CategoryRow({ type, name, onRename, onDelete }) {
   const [value, setValue] = useState(name);
+  const [error, setError] = useState('');
   const changed = value.trim() && value.trim() !== name;
+  const save = () => {
+    const clash = onRename(type, name, value.trim());
+    if (clash) setError(`Ya existe un tipo llamado «${clash}».`);
+  };
   return (
+    <>
     <div className="cat-row">
-      <input aria-label={`Nombre del tipo ${name}`} maxLength={24} value={value} onChange={(e) => setValue(e.target.value)} />
-      <button type="button" className="icon-btn" disabled={!changed} onClick={() => onRename(type, name, value.trim())} aria-label={`Guardar ${name}`}>
+      <input
+        aria-label={`Nombre del tipo ${name}`}
+        maxLength={24}
+        value={value}
+        onChange={(e) => {
+          setValue(e.target.value);
+          setError('');
+        }}
+      />
+      <button type="button" className="icon-btn" disabled={!changed} onClick={save} aria-label={`Guardar ${name}`}>
         <Check size={18} />
       </button>
       <button
@@ -160,6 +249,8 @@ function CategoryRow({ type, name, onRename, onDelete }) {
         <Trash2 size={18} />
       </button>
     </div>
+    {error && <p className="error">{error}</p>}
+    </>
   );
 }
 
@@ -260,25 +351,56 @@ function PushSection({ enabled, groups, onEnable, onDisable }) {
   );
 }
 
-function ExportForm({ onExport, onDone }) {
+function ExportForm({ onExport, onSaved, onDone }) {
   const [password, setPassword] = useState('');
   const [confirm, setConfirm] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const [downloaded, setDownloaded] = useState(false);
 
-  const submit = async (e) => {
+  const download = async () => {
+    setBusy(true);
+    setError('');
+    try {
+      await onExport(password);
+      setDownloaded(true);
+    } catch (err) {
+      setError(err?.message || 'No se pudo crear la copia.');
+    }
+    setBusy(false);
+  };
+  const submit = (e) => {
     e.preventDefault();
     if (password.length < MIN_BACKUP_PASSWORD) return setError(`Usa al menos ${MIN_BACKUP_PASSWORD} caracteres.`);
     if (password !== confirm) return setError('Las contraseñas no coinciden.');
-    setBusy(true);
-    try {
-      await onExport(password);
-      onDone('Copia cifrada descargada. Guarda la contraseña en un lugar seguro: sin ella no se puede abrir.');
-    } catch {
-      setError('No se pudo crear la copia.');
-      setBusy(false);
-    }
+    download();
   };
+
+  // La copia solo cuenta como hecha cuando confirmas que el archivo quedó guardado.
+  if (downloaded) {
+    return (
+      <div className="subform">
+        <p className="hint">
+          Revisa que el archivo <b>mi-gestor-….json</b> se haya descargado y guárdalo <b>fuera del teléfono</b> (Drive, iCloud o envíatelo por
+          correo). Guarda también la contraseña: sin ella no se puede abrir.
+        </p>
+        <button
+          type="button"
+          className="btn primary"
+          onClick={() => {
+            onSaved();
+            onDone('Copia de seguridad guardada.');
+          }}
+        >
+          Sí, la guardé
+        </button>
+        <button type="button" className="btn ghost" onClick={download} disabled={busy}>
+          {busy ? 'Cifrando…' : 'No se descargó: intentar de nuevo'}
+        </button>
+        {error && <p className="error">{error}</p>}
+      </div>
+    );
+  }
 
   return (
     <form className="subform" onSubmit={submit}>
@@ -293,26 +415,35 @@ function ExportForm({ onExport, onDone }) {
   );
 }
 
-function ImportForm({ onImport, onDone }) {
+function ImportForm({ onImport, onDone, current }) {
   const [backup, setBackup] = useState(null);
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
 
+  // Primero se abre la copia (así una contraseña equivocada no pregunta nada) y se muestra qué trae.
   const restore = async (json, pass) => {
-    if (!window.confirm('Esto reemplaza todos los datos actuales. ¿Continuar?')) return;
     setBusy(true);
     setError('');
     try {
-      await onImport(await openBackup(json, pass));
+      const data = await openBackup(json, pass);
+      const date = data.createdAt ? ` del ${new Date(data.createdAt).toLocaleDateString('es-CL', { day: 'numeric', month: 'long', year: 'numeric' })}` : '';
+      const summary = `La copia${date} tiene ${data.movements.length} movimientos, ${data.notes.length} notas y ${data.documents.length} documentos.`;
+      const now = current ? ` Ahora tienes ${current.movements} movimientos, ${current.notes} notas y ${current.documents} documentos.` : '';
+      if (!window.confirm(`${summary}${now} Restaurarla reemplaza todo lo actual. ¿Continuar?`)) {
+        setBusy(false);
+        return;
+      }
+      await onImport(data);
       onDone('Datos restaurados.');
     } catch (err) {
-      setError(err.message || 'No se pudo restaurar la copia.');
+      setError(err?.name === 'QuotaExceededError' ? 'No hay espacio suficiente en el teléfono; no se cambió nada.' : err?.message || 'No se pudo restaurar la copia.');
       setBusy(false);
     }
   };
 
   const pick = async (e) => {
+    endBackgroundAllowance();
     const file = e.target.files[0];
     e.target.value = '';
     if (!file) return;
@@ -354,7 +485,7 @@ function ImportForm({ onImport, onDone }) {
   );
 }
 
-export default function Settings({ settings, onChange, onExport, onImport, onReset, onLock, initialPanel = null, persistence, categories, onRenameCategory, onDeleteCategory, groups = [], onEnablePush, onDisablePush }) {
+export default function Settings({ settings, onChange, onExport, onBackupSaved, currentCounts, onImport, onReset, onLock, initialPanel = null, persistence, categories, onRenameCategory, onDeleteCategory, groups = [], onEnablePush, onDisablePush }) {
   const [permission, setPermission] = useState(() => (notificationsSupported() ? Notification.permission : 'unsupported'));
   const [installPrompt, setInstallPrompt] = useState(() => window.deferredInstallPrompt ?? null);
   const [panel, setPanel] = useState(initialPanel);
@@ -367,6 +498,19 @@ export default function Settings({ settings, onChange, onExport, onImport, onRes
   useEffect(() => {
     biometricSupported().then(setBioSupported);
   }, []);
+
+  // Si se abrió desde Inicio («Hacer copia», «Crear código de recuperación»), se muestra esa parte.
+  useEffect(() => {
+    const id = { export: 'settings-backup', import: 'settings-backup', recovery: 'settings-recovery' }[initialPanel];
+    if (id) requestAnimationFrame(() => document.getElementById(id)?.scrollIntoView({ block: 'start' }));
+    // Solo al abrir.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  // Los mensajes de resultado («Código cambiado», «Copia guardada»…) siempre quedan a la vista.
+  const statusRef = useRef(null);
+  useEffect(() => {
+    if (status) statusRef.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  }, [status]);
 
   const toggleQuickAccess = async (on) => {
     setStatus('');
@@ -408,6 +552,11 @@ export default function Settings({ settings, onChange, onExport, onImport, onRes
 
   return (
     <div className="form">
+      {status && (
+        <p className="status" role="status" ref={statusRef}>
+          {status}
+        </p>
+      )}
       <section className="settings-group">
         <h3 className="card-title">
           <ShieldAlert size={18} /> Seguridad
@@ -416,7 +565,7 @@ export default function Settings({ settings, onChange, onExport, onImport, onRes
           <span>Bloquear automáticamente</span>
           <div className="segmented">
             {AUTO_LOCK_OPTIONS.map((o) => (
-              <button type="button" key={o.value} className={settings.autoLock === o.value ? 'on' : ''} onClick={() => onChange({ autoLock: o.value })}>
+              <button type="button" key={o.value} className={settings.autoLock === o.value ? 'on' : ''} aria-pressed={settings.autoLock === o.value} onClick={() => onChange({ autoLock: o.value })}>
                 {o.label}
               </button>
             ))}
@@ -431,7 +580,7 @@ export default function Settings({ settings, onChange, onExport, onImport, onRes
             <KeyRound size={18} /> Cambiar código
           </button>
         </div>
-        {panel === 'code' && <ChangeCodeForm onDone={done} />}
+        {panel === 'code' && <ChangeCodeForm onDone={done} onLock={onLock} />}
         <div className="field">
           <span>Huella / Face ID</span>
           {bioEnabled ? (
@@ -456,7 +605,7 @@ export default function Settings({ settings, onChange, onExport, onImport, onRes
               <button type="button" className="btn" onClick={() => toggle('biometric')} disabled={bioSupported === null}>
                 <Fingerprint size={18} /> Activar huella / Face ID
               </button>
-              {panel === 'biometric' && <BiometricForm onDone={done} />}
+              {panel === 'biometric' && <BiometricForm onDone={done} onLock={onLock} />}
             </>
           )}
         </div>
@@ -472,7 +621,11 @@ export default function Settings({ settings, onChange, onExport, onImport, onRes
               <KeyRound size={18} /> {recoveryReady ? 'Crear uno nuevo' : 'Crear código de recuperación'}
             </button>
           )}
-          {panel === 'recovery' && <RecoveryForm onDone={done} />}
+          {panel === 'recovery' && (
+            <div id="settings-recovery">
+              <RecoveryForm onDone={done} onLock={onLock} />
+            </div>
+          )}
         </div>
         <div className="field">
           <span>Protección contra borrado</span>
@@ -518,7 +671,7 @@ export default function Settings({ settings, onChange, onExport, onImport, onRes
         </p>
       </section>
 
-      <section className="settings-group">
+      <section className="settings-group" id="settings-backup">
         <h3 className="card-title">Copia de seguridad cifrada</h3>
         <p className="hint">
           {settings.lastBackupAt
@@ -534,11 +687,9 @@ export default function Settings({ settings, onChange, onExport, onImport, onRes
             <Upload size={18} /> Importar
           </button>
         </div>
-        {panel === 'export' && <ExportForm onExport={onExport} onDone={done} />}
-        {panel === 'import' && <ImportForm onImport={onImport} onDone={done} />}
+        {panel === 'export' && <ExportForm onExport={onExport} onSaved={onBackupSaved} onDone={done} />}
+        {panel === 'import' && <ImportForm onImport={onImport} onDone={done} current={currentCounts} />}
       </section>
-
-      {status && <p className="status">{status}</p>}
 
       <section className="settings-group">
         <h3 className="card-title">
@@ -553,7 +704,7 @@ export default function Settings({ settings, onChange, onExport, onImport, onRes
           <span>Moneda</span>
           <div className="chips">
             {CURRENCIES.map((c) => (
-              <button type="button" key={c} className={`chip ${settings.currency === c ? 'on' : ''}`} onClick={() => onChange({ currency: c })}>
+              <button type="button" key={c} className={`chip ${settings.currency === c ? 'on' : ''}`} aria-pressed={settings.currency === c} onClick={() => onChange({ currency: c })}>
                 {c}
               </button>
             ))}
@@ -590,7 +741,7 @@ export default function Settings({ settings, onChange, onExport, onImport, onRes
           <span>Tamaño de letra</span>
           <div className="segmented">
             {TEXT_SIZES.map((t) => (
-              <button type="button" key={t.value} className={settings.textSize === t.value ? 'on' : ''} onClick={() => onChange({ textSize: t.value })}>
+              <button type="button" key={t.value} className={settings.textSize === t.value ? 'on' : ''} aria-pressed={settings.textSize === t.value} onClick={() => onChange({ textSize: t.value })}>
                 {t.label}
               </button>
             ))}
@@ -600,7 +751,7 @@ export default function Settings({ settings, onChange, onExport, onImport, onRes
           <span>Modo</span>
           <div className="segmented">
             {THEMES.map((t) => (
-              <button type="button" key={t.value} className={settings.theme === t.value ? 'on' : ''} onClick={() => onChange({ theme: t.value })}>
+              <button type="button" key={t.value} className={settings.theme === t.value ? 'on' : ''} aria-pressed={settings.theme === t.value} onClick={() => onChange({ theme: t.value })}>
                 {t.label}
               </button>
             ))}

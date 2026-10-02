@@ -26,7 +26,7 @@ ok(await alertBox.count()===0, 'otro gasto dentro del mismo nivel: no repite el 
 await add('70.000','Compras');
 const t = await alertBox.textContent();
 ok(/Estás por sobre tu presupuesto/.test(t) && /\$405\.000/.test(t) && /Te pasaste por \$5\.000/.test(t), 'al pasarse: alerta con monto y exceso');
-ok((await p.evaluate(()=>window.__vib)).length===2, 'el teléfono vibra en cada aviso');
+ok((await p.evaluate(()=>window.__vib.filter((x)=>x!==30))).length===2, 'el teléfono vibra en cada aviso (además del toque corto al guardar)');
 await p.waitForTimeout(250); await p.screenshot({ path: S+'/alert-over.png' });
 await p.getByRole('button',{name:'Ver presupuesto'}).click();
 ok(await alertBox.count()===0 && await p.locator('.budget-status.over').isVisible(), '"Ver presupuesto" cierra y muestra la barra en rojo');

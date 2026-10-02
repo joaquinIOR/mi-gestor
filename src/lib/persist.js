@@ -10,6 +10,8 @@ export async function requestPersistence() {
   }
 }
 
+export const isIOS = () => /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+
 export const isInstalled = () => window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
 
 export const BACKUP_EVERY_DAYS = 30;

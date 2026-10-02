@@ -1,24 +1,32 @@
 import { useEffect, useRef, useState } from 'react';
-import { Eye, EyeOff, Fingerprint, Lock, ShieldCheck } from 'lucide-react';
-import { biometricErrorMessage, readBiometricSecret } from '../lib/biometric';
+import { Eye, EyeOff, Fingerprint, Lock, ShieldCheck, Smartphone } from 'lucide-react';
+import { isInstalled, isIOS } from '../lib/persist';
+import { biometricErrorMessage, biometricSupported, readBiometricSecret, registerBiometric } from '../lib/biometric';
 import RecoveryCode from '../components/RecoveryCode';
-import { openSession, wipeAllData } from '../lib/store';
+import { hasEncryptedData, openSession, wipeAllData } from '../lib/store';
 import {
   biometricInfo,
   codeWarning,
+  commitRecovery,
   createVault,
+  enableBiometric,
   hasRecovery,
   getLockout,
+  lockoutWait,
   MIN_CODE_LENGTH,
   recoverAccess,
   registerFailure,
   removeVault,
   resetFailures,
+  readVault,
   unlockVault,
   unlockWithBiometric,
   WIPE_AFTER_FAILURES,
   WrongCodeError,
 } from '../lib/vault';
+
+// «Espera 4:30 min» en vez de «Espera 270 s».
+const waitText = (s) => (s < 60 ? `${s} s` : `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')} min`);
 
 function CodeInput({ value, onChange, placeholder, autoFocus, autoComplete }) {
   const [visible, setVisible] = useState(false);
@@ -43,35 +51,143 @@ function CodeInput({ value, onChange, placeholder, autoFocus, autoComplete }) {
   );
 }
 
-export function SetupScreen({ onReady }) {
+// En iPhone, Safari y la app instalada guardan sus datos por separado: lo que se cree en Safari no pasa a la app.
+function InstallFirst({ invite, onContinue }) {
+  const [copied, setCopied] = useState(false);
+  const copyInvite = async () => {
+    try {
+      await navigator.clipboard.writeText(`${window.location.origin}${import.meta.env.BASE_URL}${invite}`);
+      setCopied(true);
+    } catch {
+      setCopied(false);
+    }
+  };
+  return (
+    <div className="lock-screen">
+      <div className="lock-card">
+        <span className="lock-icon">
+          <Smartphone size={32} />
+        </span>
+        <h1>Primero instala Mi Gestor</h1>
+        <p className="muted">
+          En iPhone, lo que guardes aquí en Safari <b>no pasa</b> a la app instalada, y Safari puede borrarlo si no lo usas por unos días.
+        </p>
+        <ol className="steps">
+          <li>
+            Toca <b>Compartir</b> (el cuadrado con la flecha) y luego <b>Añadir a pantalla de inicio</b>.
+          </li>
+          <li>Abre Mi Gestor desde el ícono nuevo y crea ahí tu código.</li>
+          {invite && <li>Dentro de la app: Grupo → «Unirme con invitación» y pega el enlace.</li>}
+        </ol>
+        {invite && (
+          <button type="button" className="btn" onClick={copyInvite}>
+            {copied ? 'Invitación copiada ✓' : 'Copiar la invitación'}
+          </button>
+        )}
+        <button type="button" className="btn ghost small" onClick={onContinue}>
+          Continuar en Safari de todos modos
+        </button>
+      </div>
+    </div>
+  );
+}
+
+export function SetupScreen({ onReady, onExisting, invite, wiped }) {
+  const [inSafari, setInSafari] = useState(() => isIOS() && !isInstalled());
   const [code, setCode] = useState('');
   const [confirm, setConfirm] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const [created, setCreated] = useState(null);
+  const [orphan, setOrphan] = useState(false);
+  // Después del código de recuperación se ofrece la huella / Face ID (si el teléfono lo permite).
+  const [bioSupported, setBioSupported] = useState(false);
+  const [askBio, setAskBio] = useState(false);
+  const [bioError, setBioError] = useState('');
   const warning = code.length >= MIN_CODE_LENGTH ? codeWarning(code) : '';
+
+  useEffect(() => {
+    hasEncryptedData().then(setOrphan, () => {});
+    biometricSupported().then(setBioSupported, () => {});
+  }, []);
+  const finish = (session) => {
+    setCode('');
+    setConfirm('');
+    onReady(session);
+  };
+  const activateBio = async () => {
+    setBioError('');
+    setBusy(true);
+    try {
+      await enableBiometric(code, registerBiometric);
+      finish(created.session);
+    } catch (err) {
+      setBioError(biometricErrorMessage(err));
+      setBusy(false);
+    }
+  };
+  const startOver = async () => {
+    if (!window.confirm('Se borrarán de este teléfono los datos que no se pueden abrir. Si tienes una copia de seguridad, después podrás restaurarla en Ajustes → Importar. ¿Continuar?')) return;
+    await wipeAllData();
+    setOrphan(false);
+  };
 
   const submit = async (e) => {
     e.preventDefault();
     if (code.length < MIN_CODE_LENGTH) return setError(`El código debe tener al menos ${MIN_CODE_LENGTH} caracteres.`);
     if (code !== confirm) return setError('Los códigos no coinciden.');
+    // Si en otra ventana ya se creó el código, no se reemplaza (se perderían los datos): se pide ese código.
+    if (readVault()) return onExisting();
+    if (orphan) return setError('Primero decide qué hacer con los datos anteriores.');
     setBusy(true);
     setError('');
     try {
-      const { key, recoveryCode } = await createVault(code);
+      const { key, recovery } = await createVault(code);
       resetFailures();
-      setCreated({ session: await openSession(key), recoveryCode });
+      setCreated({ session: await openSession(key), recovery });
     } catch {
       setError('No se pudo proteger la app en este navegador.');
       setBusy(false);
     }
   };
 
+  if (inSafari && !created) return <InstallFirst invite={invite} onContinue={() => setInSafari(false)} />;
+
+  if (created && askBio) {
+    return (
+      <div className="lock-screen">
+        <div className="lock-card">
+          <span className="lock-icon">
+            <Fingerprint size={32} />
+          </span>
+          <h1>¿Desbloquear con huella o Face ID?</h1>
+          <p className="muted">Así no tendrás que escribir el código cada vez. Tu código sigue sirviendo siempre.</p>
+          <p className="hint warn-text">El teléfono también puede aceptar su propio código de desbloqueo: actívalo solo si nadie más lo conoce.</p>
+          {bioError && <p className="error">{bioError}</p>}
+          <button type="button" className="btn primary" onClick={activateBio} disabled={busy}>
+            <Fingerprint size={20} /> {busy ? 'Esperando al sensor…' : 'Activar'}
+          </button>
+          <button type="button" className="btn ghost" onClick={() => finish(created.session)} disabled={busy}>
+            Ahora no
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   if (created) {
     return (
       <div className="lock-screen">
         <div className="lock-card">
-          <RecoveryCode code={created.recoveryCode} onDone={() => onReady(created.session)} />
+          <RecoveryCode
+            code={created.recovery.code}
+            onDone={() => {
+              commitRecovery(created.recovery);
+              setBusy(false);
+              if (bioSupported) setAskBio(true);
+              else finish(created.session);
+            }}
+          />
         </div>
       </div>
     );
@@ -84,16 +200,37 @@ export function SetupScreen({ onReady }) {
           <ShieldCheck size={32} />
         </span>
         <h1>Protege Mi Gestor</h1>
+        {wiped && (
+          <p className="error">
+            Se borraron los datos de este teléfono por demasiados intentos con el código. Si tienes una copia de seguridad, podrás restaurarla
+            después de crear el código nuevo.
+          </p>
+        )}
         <p className="muted">
           Crea un código para bloquear la app. Tus datos y documentos se <b>cifrarán</b> con él: sin el código nadie puede leerlos, ni
           siquiera copiando los archivos del teléfono.
         </p>
+        {orphan && (
+          <div className="notice warn">
+            <div className="notice-text">
+              <b>Hay datos de antes que no se pueden abrir</b>
+              <p>
+                Este teléfono tiene datos cifrados de Mi Gestor, pero falta la llave para abrirlos (por ejemplo, porque se borraron los datos
+                del navegador). Sin ella nadie puede leerlos. Si tienes una copia de seguridad, podrás restaurarla después.
+              </p>
+            </div>
+            <button type="button" className="btn small danger" onClick={startOver}>
+              Borrar y empezar de cero
+            </button>
+          </div>
+        )}
         <CodeInput value={code} onChange={setCode} placeholder={`Código (mínimo ${MIN_CODE_LENGTH} caracteres)`} autoFocus autoComplete="new-password" />
         <CodeInput value={confirm} onChange={setConfirm} placeholder="Repite el código" autoComplete="new-password" />
         {warning && <p className="hint warn-text">{warning}</p>}
         <p className="hint">
           Después te daremos un <b>código de recuperación</b> por si algún día olvidas este.
         </p>
+        <p className="hint">¿Ya usabas Mi Gestor en otro teléfono? Crea un código y luego ve a Ajustes → Importar para restaurar tu copia.</p>
         {error && <p className="error">{error}</p>}
         <button type="submit" className="btn primary" disabled={busy}>
           {busy ? 'Cifrando…' : 'Crear código'}
@@ -103,7 +240,7 @@ export function SetupScreen({ onReady }) {
   );
 }
 
-export function LockScreen({ wipeOnFailures, quickType, invited, onUnlock, onWiped }) {
+export function LockScreen({ wipeOnFailures, quickType, invited, autoBiometric = true, onUnlock, onWiped }) {
   const [code, setCode] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
@@ -144,7 +281,7 @@ export function LockScreen({ wipeOnFailures, quickType, invited, onUnlock, onWip
 
   // Pide la huella automáticamente al aparecer la pantalla (en iPhone hay que tocar el botón).
   useEffect(() => {
-    if (!hasBiometric || autoTried.current || document.visibilityState !== 'visible') return;
+    if (!hasBiometric || !autoBiometric || autoTried.current || document.visibilityState !== 'visible') return;
     autoTried.current = true;
     const controller = new AbortController();
     pendingBio.current = controller;
@@ -159,12 +296,12 @@ export function LockScreen({ wipeOnFailures, quickType, invited, onUnlock, onWip
         if (pendingBio.current === controller) pendingBio.current = null;
       });
     return () => controller.abort();
-  }, [hasBiometric, onUnlock]);
+  }, [hasBiometric, autoBiometric, onUnlock]);
 
   const [recovering, setRecovering] = useState(false);
   const [canRecover] = useState(hasRecovery);
-  const wait = Math.max(0, Math.ceil((lockout.until - now) / 1000));
-  const remaining = WIPE_AFTER_FAILURES - lockout.failures;
+  const wait = lockoutWait(lockout, now);
+  const remaining = Math.max(0, WIPE_AFTER_FAILURES - lockout.failures);
 
   const submit = async (e) => {
     e.preventDefault();
@@ -195,15 +332,7 @@ export function LockScreen({ wipeOnFailures, quickType, invited, onUnlock, onWip
 
   if (recovering) {
     return (
-      <RecoverForm
-        wait={wait}
-        onCancel={() => setRecovering(false)}
-        onFailure={() => {
-          setLockout(registerFailure());
-          setNow(Date.now());
-        }}
-        onUnlock={onUnlock}
-      />
+      <RecoverForm onCancel={() => setRecovering(false)} onUnlock={onUnlock} />
     );
   }
 
@@ -228,7 +357,7 @@ export function LockScreen({ wipeOnFailures, quickType, invited, onUnlock, onWip
         )}
         <CodeInput value={code} onChange={typeCode} placeholder="Código" autoFocus={!hasBiometric} autoComplete="current-password" />
         {error && <p className="error">{error}</p>}
-        {wait > 0 && <p className="hint warn-text">Demasiados intentos. Espera {wait} s.</p>}
+        {wait > 0 && <p className="hint warn-text">Demasiados intentos. Espera {waitText(wait)}.</p>}
         {wipeOnFailures && lockout.failures > 0 && (
           <p className="hint warn-text">
             Quedan {remaining} {remaining === 1 ? 'intento' : 'intentos'} antes de borrar todos los datos.
@@ -263,7 +392,9 @@ export function UnsupportedScreen() {
   );
 }
 
-function RecoverForm({ wait, onCancel, onFailure, onUnlock }) {
+// El código de recuperación tiene 160 bits al azar: no hace falta limitar intentos ni esperar, y sus fallos
+// no cuentan para el borrado tras 10 intentos (solo una pausa breve entre intentos).
+function RecoverForm({ onCancel, onUnlock }) {
   const [recovery, setRecovery] = useState('');
   const [code, setCode] = useState('');
   const [confirm, setConfirm] = useState('');
@@ -272,7 +403,7 @@ function RecoverForm({ wait, onCancel, onFailure, onUnlock }) {
 
   const submit = async (e) => {
     e.preventDefault();
-    if (wait > 0 || busy) return;
+    if (busy) return;
     if (code.length < MIN_CODE_LENGTH) return setError(`El código nuevo debe tener al menos ${MIN_CODE_LENGTH} caracteres.`);
     if (code !== confirm) return setError('Los códigos nuevos no coinciden.');
     setBusy(true);
@@ -282,9 +413,8 @@ function RecoverForm({ wait, onCancel, onFailure, onUnlock }) {
       resetFailures();
       onUnlock(await openSession(key));
     } catch (err) {
-      setBusy(false);
-      if (err instanceof WrongCodeError) onFailure();
       setError(err.message || 'No se pudo recuperar el acceso.');
+      setTimeout(() => setBusy(false), err instanceof WrongCodeError ? 2000 : 0);
     }
   };
 
@@ -310,8 +440,7 @@ function RecoverForm({ wait, onCancel, onFailure, onUnlock }) {
         <CodeInput value={code} onChange={setCode} placeholder={`Código nuevo (mínimo ${MIN_CODE_LENGTH})`} autoComplete="new-password" />
         <CodeInput value={confirm} onChange={setConfirm} placeholder="Repite el código nuevo" autoComplete="new-password" />
         {error && <p className="error">{error}</p>}
-        {wait > 0 && <p className="hint warn-text">Demasiados intentos. Espera {wait} s.</p>}
-        <button type="submit" className="btn primary" disabled={busy || wait > 0}>
+        <button type="submit" className="btn primary" disabled={busy}>
           {busy ? 'Recuperando…' : 'Recuperar y entrar'}
         </button>
         <button type="button" className="btn ghost small" onClick={onCancel}>

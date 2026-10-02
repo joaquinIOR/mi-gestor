@@ -1,8 +1,11 @@
 import { useState } from 'react';
-import { ChevronLeft, Minus, Pencil, Plus, Target, Trash2 } from 'lucide-react';
-import { formatLong, formatShort, todayKey } from '../lib/dates';
-import { formatMoney, parseAmount, uid } from '../lib/format';
-import { GOAL_EMOJIS, goalSaved, monthlyNeeded } from '../lib/goals';
+import { ChevronLeft, Minus, Pencil, Plus, Target, Trash2, X } from 'lucide-react';
+import AmountHint from './AmountHint';
+import { addDays, formatShort, parseKey, toKey, todayKey } from '../lib/dates';
+import { formatMoney, MAX_AMOUNT, parseAmount, uid } from '../lib/format';
+import { GOAL_EMOJIS, goalExpired, goalSaved, monthlyNeeded } from '../lib/goals';
+
+const longDate = (key) => parseKey(key).toLocaleDateString('es', { day: 'numeric', month: 'long', year: 'numeric' });
 
 const pct = (goal) => Math.min(100, (goalSaved(goal) / goal.target) * 100);
 
@@ -27,7 +30,8 @@ function GoalForm({ initial, currency, onSave, onCancel, onDelete }) {
     const value = parseAmount(target);
     if (!name.trim()) return setError('Ponle un nombre a la meta.');
     if (!(value > 0)) return setError('Escribe cuánto quieres juntar.');
-    if (deadline && deadline <= todayKey()) return setError('La fecha debe ser futura.');
+    if (value >= MAX_AMOUNT) return setError('El monto es demasiado grande.');
+    if (deadline && deadline !== initial.deadline && deadline <= todayKey()) return setError('La fecha debe ser futura.');
     onSave({
       id: initial.id ?? uid(),
       name: name.trim().slice(0, 40),
@@ -49,7 +53,7 @@ function GoalForm({ initial, currency, onSave, onCancel, onDelete }) {
         <span>Ícono</span>
         <div className="chips">
           {GOAL_EMOJIS.map((em) => (
-            <button type="button" key={em} className={`chip emoji-chip ${emoji === em ? 'on' : ''}`} onClick={() => setEmoji(em)} aria-label={`Ícono ${em}`}>
+            <button type="button" key={em} className={`chip emoji-chip ${emoji === em ? 'on' : ''}`} aria-pressed={emoji === em} onClick={() => setEmoji(em)} aria-label={`Ícono ${em}`}>
               {em}
             </button>
           ))}
@@ -61,10 +65,11 @@ function GoalForm({ initial, currency, onSave, onCancel, onDelete }) {
           <span>{currency}</span>
           <input inputMode="decimal" placeholder="0" value={target} onChange={(e) => setTarget(e.target.value.replace(/[^\d.,]/g, ''))} />
         </div>
+        <AmountHint value={target} currency={currency} />
       </label>
       <label className="field">
         <span>¿Para cuándo? (opcional)</span>
-        <input type="date" value={deadline} onChange={(e) => setDeadline(e.target.value)} />
+        <input type="date" value={deadline} min={toKey(addDays(new Date(), 1))} onChange={(e) => setDeadline(e.target.value)} />
       </label>
       {error && <p className="error">{error}</p>}
       <div className="actions">
@@ -92,8 +97,10 @@ function MoveForm({ goal, mode, currency, onSave, onCancel }) {
     e.preventDefault();
     const value = parseAmount(amount);
     if (!(value > 0)) return setError('Escribe un monto mayor que 0.');
+    if (value >= MAX_AMOUNT) return setError('El monto es demasiado grande.');
     if (mode === 'out' && value > saved) return setError(`Solo tienes ${formatMoney(saved, currency)} en esta meta.`);
-    onSave({ id: uid(), date: todayKey(), amount: mode === 'out' ? -value : value });
+    const rounded = Math.round(value * 100) / 100;
+    onSave({ id: uid(), date: todayKey(), amount: mode === 'out' ? -rounded : rounded });
   };
   return (
     <form className="subform" onSubmit={submit}>
@@ -101,6 +108,7 @@ function MoveForm({ goal, mode, currency, onSave, onCancel }) {
         <span>{currency}</span>
         <input inputMode="decimal" placeholder="0" value={amount} onChange={(e) => setAmount(e.target.value.replace(/[^\d.,]/g, ''))} autoFocus aria-label={mode === 'out' ? 'Monto a retirar' : 'Monto a aportar'} />
       </div>
+      <AmountHint value={amount} currency={currency} />
       {error && <p className="error">{error}</p>}
       <div className="actions">
         <button type="button" className="btn ghost" onClick={onCancel}>
@@ -120,6 +128,11 @@ function GoalDetail({ goal, currency, onBack, onChange, onDelete }) {
   const saved = goalSaved(goal);
   const left = Math.max(0, goal.target - saved);
   const monthly = monthlyNeeded(goal);
+  const expired = goalExpired(goal);
+  const removeEntry = (entry) => {
+    const text = `${entry.amount < 0 ? 'retiro' : 'aporte'} de ${formatMoney(Math.abs(entry.amount), currency)} del ${formatShort(entry.date)}`;
+    if (window.confirm(`¿Borrar el ${text}?`)) onChange({ ...goal, entries: goal.entries.filter((e) => e.id !== entry.id) });
+  };
 
   if (editing) {
     return (
@@ -159,9 +172,11 @@ function GoalDetail({ goal, currency, onBack, onChange, onDelete }) {
       <p className="hint">
         {left === 0
           ? '🎉 ¡Meta cumplida!'
-          : monthly != null
-            ? `Faltan ${formatMoney(left, currency)}. Para llegar el ${formatLong(goal.deadline)}, ahorra unos ${formatMoney(Math.ceil(monthly), currency)} al mes.`
-            : `Faltan ${formatMoney(left, currency)}.`}
+          : expired
+            ? `Faltan ${formatMoney(left, currency)}. La fecha (${longDate(goal.deadline)}) ya pasó: toca ✏️ para poner una nueva.`
+            : monthly != null
+              ? `Faltan ${formatMoney(left, currency)}. Para llegar el ${longDate(goal.deadline)}, ahorra unos ${formatMoney(Math.ceil(monthly), currency)} al mes.`
+              : `Faltan ${formatMoney(left, currency)}.`}
       </p>
       {mode ? (
         <MoveForm
@@ -195,6 +210,9 @@ function GoalDetail({ goal, currency, onBack, onChange, onDelete }) {
                   {e.amount < 0 ? '−' : '+'}
                   {formatMoney(Math.abs(e.amount), currency)}
                 </b>
+                <button type="button" className="icon-btn small" aria-label={`Borrar ${e.amount < 0 ? 'retiro' : 'aporte'} del ${formatShort(e.date)}`} onClick={() => removeEntry(e)}>
+                  <X size={16} />
+                </button>
               </li>
             ))}
           </ul>

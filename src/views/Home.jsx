@@ -5,10 +5,10 @@ import { GoalsCard } from '../components/Goals';
 import MovementRow from '../components/MovementRow';
 import { addDays, MONTHS, monthEnd, monthStart, parseKey, todayKey } from '../lib/dates';
 import { formatMoney } from '../lib/format';
-import { expandRange, sumTotals } from '../lib/recurrence';
+import { expandRange, sumTotals, withPaid } from '../lib/recurrence';
 import { billReminders, myShares } from '../lib/shared';
 
-export default function Home({ movements, groups, goals, onOpenGoals, notesCount, currency, budget, onSetBudget, settings, onSettings, onAdd, onEdit, onNavigate }) {
+export default function Home({ movements, groups, goals, onOpenGoals, notesCount, currency, budget, onSetBudget, settings, onSettings, onAdd, onEdit, onMarkPaid, docReminders = [], onNavigate }) {
   const today = todayKey();
   const now = parseKey(today);
   const y = now.getFullYear();
@@ -21,17 +21,21 @@ export default function Home({ movements, groups, goals, onOpenGoals, notesCount
   );
   const sharedTotal = monthItems.filter((i) => i.shared).reduce((sum, i) => sum + i.amount, 0);
   const totals = sumTotals(monthItems);
+  // El balance del mes incluye lo programado para después de hoy: se indica cuánto es.
+  const pending = sumTotals(monthItems.filter((i) => i.occurrence > today));
 
   const upcoming = useMemo(() => {
     const start = parseKey(today);
     // Cada movimiento aparece cuando entra en su propio plazo de aviso (mínimo una semana).
-    return [...movements, ...billReminders(groups)]
+    return [...withPaid(movements), ...billReminders(groups), ...docReminders]
       .filter((x) => x.reminder != null)
       .flatMap((x) => expandRange([x], start, addDays(start, Math.max(7, x.reminder))))
       .filter((x) => !x.isPaid?.(x.occurrence))
       .sort((a, b) => a.occurrence.localeCompare(b.occurrence))
+      // Solo la próxima vez de cada uno, para que un gasto diario no tape los demás pagos.
+      .filter((x, i, list) => list.findIndex((o) => o.id === x.id) === i)
       .slice(0, 6);
-  }, [movements, groups, today]);
+  }, [movements, groups, docReminders, today]);
 
   const byCategory = useMemo(() => {
     const map = new Map();
@@ -46,6 +50,14 @@ export default function Home({ movements, groups, goals, onOpenGoals, notesCount
       <section className="card hero">
         <p className="muted">Balance de {MONTHS[m].toLowerCase()}</p>
         <p className={`big ${totals.balance < 0 ? 'expense' : ''}`}>{formatMoney(totals.balance, currency)}</p>
+        {(pending.income > 0 || pending.expense > 0) && (
+          <small className="hero-note">
+            Incluye lo programado para después de hoy:
+            {pending.income > 0 && ` +${formatMoney(pending.income, currency)}`}
+            {pending.income > 0 && pending.expense > 0 && ' ·'}
+            {pending.expense > 0 && ` −${formatMoney(pending.expense, currency)}`}
+          </small>
+        )}
         <div className="split">
           <div>
             <span className="label income">
@@ -114,13 +126,19 @@ export default function Home({ movements, groups, goals, onOpenGoals, notesCount
         {upcoming.length ? (
           <div className="list">
             {upcoming.map((item) => (
-              <MovementRow
-                key={`${item.id}@${item.occurrence}`}
-                item={item}
-                currency={currency}
-                showDate
-                onClick={() => (item.bill ? onNavigate('group') : onEdit(item))}
-              />
+              <div key={`${item.id}@${item.occurrence}`} className="upcoming-row">
+                <MovementRow
+                  item={item}
+                  currency={currency}
+                  showDate
+                  onClick={() => (item.bill ? onNavigate('group', 'casa') : item.doc ? onNavigate('documents') : onEdit(item))}
+                />
+                {item.type === 'expense' && !item.bill && !item.doc && (
+                  <button type="button" className="btn small ghost paid-btn" onClick={() => onMarkPaid(item.id, item.occurrence)} aria-label={`Ya pagué ${item.description || item.category}`}>
+                    Ya lo pagué
+                  </button>
+                )}
+              </div>
             ))}
           </div>
         ) : (

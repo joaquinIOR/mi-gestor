@@ -3,10 +3,21 @@ import { Search, Wallet, X } from 'lucide-react';
 import MonthlySummary from '../components/MonthlySummary';
 import MonthSwitcher from '../components/MonthSwitcher';
 import MovementRow from '../components/MovementRow';
-import { formatLong, monthEnd, monthStart } from '../lib/dates';
+import { formatLong, monthEnd, monthStart, parseKey, todayKey } from '../lib/dates';
 import { formatMoney } from '../lib/format';
-import { expandRange, sumTotals } from '../lib/recurrence';
+import { expandRange, occurrences, sumTotals } from '../lib/recurrence';
 import { myShares } from '../lib/shared';
+
+// Para buscar sin importar tildes ni mayúsculas: «credito» encuentra «Crédito».
+const fold = (text) => text.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase();
+
+// En los resultados, una serie se muestra con su fecha más reciente (no con la del inicio).
+function lastDate(m, today) {
+  if (!m.frequency || m.frequency === 'once' || m.date > today) return m.date;
+  const end = parseKey(m.until && m.until < today ? m.until : today);
+  const from = new Date(end.getFullYear() - 1, end.getMonth(), end.getDate() - 7);
+  return occurrences(m, from < parseKey(m.date) ? parseKey(m.date) : from, end).at(-1) ?? m.date;
+}
 
 const FILTERS = [
   { value: 'all', label: 'Todos' },
@@ -17,18 +28,24 @@ const FILTERS = [
 export default function Movements({ movements, groups, countShared, currency, cursor, onCursor, onEdit, onOpenGroup }) {
   const [filter, setFilter] = useState('all');
   const [query, setQuery] = useState('');
-  const q = query.trim().toLowerCase();
-  // La búsqueda recorre todos los meses (descripción, tipo y tarjeta).
-  const results = useMemo(
-    () =>
-      q
-        ? movements
-            .filter((m) => `${m.description} ${m.category} ${m.card ?? ''}`.toLowerCase().includes(q))
-            .map((m) => ({ ...m, occurrence: m.date }))
-            .sort((a, b) => b.date.localeCompare(a.date))
-        : [],
-    [movements, q]
-  );
+  const q = fold(query.trim());
+  // La búsqueda recorre todos los meses (descripción, tipo, tarjeta y monto), sin importar tildes.
+  const results = useMemo(() => {
+    if (!q) return [];
+    const today = todayKey();
+    const digits = q.replace(/[.\s$]/g, '');
+    return movements
+      .filter((m) => fold(`${m.description} ${m.category} ${m.card ?? ''}`).includes(q) || (/^\d+$/.test(digits) && String(m.amount).startsWith(digits)))
+      .map((m) => ({ ...m, occurrence: lastDate(m, today) }))
+      .sort((a, b) => b.occurrence.localeCompare(a.occurrence));
+  }, [movements, q]);
+  // Cuánto suman los resultados en los últimos 12 meses (por ejemplo, «¿cuánto gasto en Uber?»).
+  const yearTotals = useMemo(() => {
+    if (!results.length) return null;
+    const to = parseKey(todayKey());
+    const from = new Date(to.getFullYear() - 1, to.getMonth(), to.getDate() + 1);
+    return sumTotals(expandRange(results, from, to));
+  }, [results]);
 
   const items = useMemo(
     () =>
@@ -53,7 +70,7 @@ export default function Movements({ movements, groups, countShared, currency, cu
   const searchBox = (
     <div className="search">
       <Search size={18} />
-      <input placeholder="Buscar en todos los meses" value={query} onChange={(e) => setQuery(e.target.value)} />
+      <input placeholder="Buscar en todos los meses" aria-label="Buscar movimientos" enterKeyHint="search" value={query} onChange={(e) => setQuery(e.target.value)} />
       {query && (
         <button type="button" className="icon-btn small" onClick={() => setQuery('')} aria-label="Borrar búsqueda">
           <X size={16} />
@@ -66,7 +83,11 @@ export default function Movements({ movements, groups, countShared, currency, cu
     return (
       <div className="stack">
         {searchBox}
-        <p className="hint">{results.length === 1 ? '1 resultado' : `${results.length} resultados`}</p>
+        <p className="hint">
+          {results.length === 1 ? '1 resultado' : `${results.length} resultados`}
+          {yearTotals?.expense > 0 && ` · gastos ${formatMoney(yearTotals.expense, currency)} en los últimos 12 meses`}
+          {yearTotals?.income > 0 && ` · ingresos ${formatMoney(yearTotals.income, currency)} en los últimos 12 meses`}
+        </p>
         {results.length ? (
           <section className="card">
             <div className="list">
@@ -108,7 +129,7 @@ export default function Movements({ movements, groups, countShared, currency, cu
 
       <div className="segmented">
         {FILTERS.map((f) => (
-          <button type="button" key={f.value} className={filter === f.value ? 'on' : ''} onClick={() => setFilter(f.value)}>
+          <button type="button" key={f.value} className={filter === f.value ? 'on' : ''} aria-pressed={filter === f.value} onClick={() => setFilter(f.value)}>
             {f.label}
           </button>
         ))}

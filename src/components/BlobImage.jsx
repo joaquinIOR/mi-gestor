@@ -8,5 +8,5 @@ export default function BlobImage({ blob, alt = '', ...props }) {
     ref.current.src = url;
     return () => URL.revokeObjectURL(url);
   }, [blob]);
-  return <img ref={ref} alt={alt} {...props} />;
+  return <img ref={ref} alt={alt} decoding="async" {...props} />;
 }

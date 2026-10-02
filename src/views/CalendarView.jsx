@@ -5,24 +5,30 @@ import MovementRow from '../components/MovementRow';
 import { daysInMonth, formatLong, monthEnd, monthStart, parseKey, todayKey, toKey, WEEKDAYS } from '../lib/dates';
 import { formatMoney } from '../lib/format';
 import { expandRange, reminderLabel, sumTotals } from '../lib/recurrence';
+import { myShares } from '../lib/shared';
 
-export default function CalendarView({ movements, currency, cursor, onCursor, onEdit, onAdd }) {
+export default function CalendarView({ movements, groups = [], currency, cursor, onCursor, onEdit, onAdd, onOpenGroup }) {
   const today = todayKey();
-  const [selected, setSelected] = useState(today);
+  // Si se abre en otro mes (el Historial y el Calendario comparten el mes), se elige el día 1 de ese mes.
+  const [selected, setSelected] = useState(() => {
+    const now = parseKey(today);
+    return now.getFullYear() === cursor.y && now.getMonth() === cursor.m ? today : toKey(new Date(cursor.y, cursor.m, 1));
+  });
   const { y, m } = cursor;
 
   const byDay = useMemo(() => {
     const map = {};
-    for (const item of expandRange(movements, monthStart(y, m), monthEnd(y, m))) {
+    // Incluye tu parte de los gastos en común (si así lo elegiste en Ajustes).
+    for (const item of [...expandRange(movements, monthStart(y, m), monthEnd(y, m)), ...myShares(groups, monthStart(y, m), monthEnd(y, m))]) {
       (map[item.occurrence] ??= []).push(item);
     }
     return map;
-  }, [movements, y, m]);
+  }, [movements, groups, y, m]);
 
   const dayItems = useMemo(() => {
     const d = parseKey(selected);
-    return expandRange(movements, d, d);
-  }, [movements, selected]);
+    return [...expandRange(movements, d, d), ...myShares(groups, d, d)];
+  }, [movements, groups, selected]);
   const dayTotals = sumTotals(dayItems);
   const cardPayments = Object.values(byDay)
     .flat()
@@ -52,8 +58,18 @@ export default function CalendarView({ movements, currency, cursor, onCursor, on
             if (!key) return <span key={`blank-${i}`} />;
             const items = byDay[key] ?? [];
             const classes = ['cal-day', key === today && 'today', key === selected && 'selected'].filter(Boolean).join(' ');
+            // Para lectores de pantalla: la fecha y qué hay ese día (los puntos de colores no se leen).
+            const count = (n, one, many) => (n ? `${n} ${n === 1 ? one : many}` : null);
+            const label = [
+              `${formatLong(key)}${key === today ? ' (hoy)' : ''}`,
+              count(items.filter((x) => x.type === 'income').length, 'ingreso', 'ingresos'),
+              count(items.filter((x) => x.type === 'expense' && !x.card).length, 'gasto', 'gastos'),
+              count(items.filter((x) => x.card).length, 'pago de tarjeta', 'pagos de tarjeta'),
+            ]
+              .filter(Boolean)
+              .join(', ');
             return (
-              <button type="button" key={key} className={classes} onClick={() => setSelected(key)} aria-label={formatLong(key)}>
+              <button type="button" key={key} className={classes} onClick={() => setSelected(key)} aria-label={label} aria-pressed={key === selected}>
                 <span>{parseKey(key).getDate()}</span>
                 <span className="dots">
                   {items.some((x) => x.type === 'income') && <i className="dot income" />}
@@ -93,7 +109,7 @@ export default function CalendarView({ movements, currency, cursor, onCursor, on
           <>
             <div className="list">
               {dayItems.map((item) => (
-                <MovementRow key={item.id} item={item} currency={currency} onClick={() => onEdit(item)} />
+                <MovementRow key={item.id} item={item} currency={currency} onClick={() => (item.shared ? onOpenGroup?.() : onEdit(item))} />
               ))}
             </div>
             <p className="day-total">

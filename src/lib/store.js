@@ -16,22 +16,38 @@ function openDb() {
       if (!db.objectStoreNames.contains(DOCS)) db.createObjectStore(DOCS, { keyPath: 'id' });
       if (!db.objectStoreNames.contains(VAULT)) db.createObjectStore(VAULT);
     };
-    request.onsuccess = () => resolve(request.result);
+    request.onsuccess = () => {
+      // Si otra pestaña actualiza la base de datos, esta conexión se cierra para no bloquearla.
+      request.result.onversionchange = () => request.result.close();
+      resolve(request.result);
+    };
     request.onerror = () => reject(request.error);
   });
 }
 
-async function run(storeName, mode, action) {
+async function run(storeNames, mode, action) {
   const db = await openDb();
   return new Promise((resolve, reject) => {
-    const tx = db.transaction(storeName, mode);
-    const request = action(tx.objectStore(storeName));
+    let tx;
+    let request;
+    const fail = (e) => {
+      db.close();
+      reject(tx?.error ?? e?.target?.error ?? new Error('No se pudo acceder a los datos de este teléfono.'));
+    };
+    try {
+      tx = db.transaction(storeNames, mode);
+      request = action(Array.isArray(storeNames) ? tx : tx.objectStore(storeNames));
+    } catch (err) {
+      db.close();
+      reject(err);
+      return;
+    }
     tx.oncomplete = () => {
       db.close();
       resolve(request?.result);
     };
-    tx.onerror = () => reject(tx.error);
-    tx.onabort = () => reject(tx.error);
+    tx.onerror = fail;
+    tx.onabort = fail;
   });
 }
 
@@ -69,6 +85,28 @@ export function createStore(key) {
       });
       return saving;
     },
+    // Restaurar una copia: todo (datos y documentos) se guarda en una sola operación; si algo falla
+    // (por ejemplo, falta espacio), no cambia nada.
+    replaceAll(state, documents) {
+      saving = saving.catch(() => {}).then(async () => {
+        const records = [];
+        for (const doc of documents) records.push(await encryptDocument(key, doc));
+        const box = await encryptJson(key, state);
+        await run([DOCS, VAULT], 'readwrite', (tx) => {
+          const docs = tx.objectStore(DOCS);
+          docs.clear();
+          records.forEach((r) => docs.put(r));
+          tx.objectStore(VAULT).put(box, 'state');
+        });
+      });
+      return saving;
+    },
+    countDocuments: () => run(DOCS, 'readonly', (s) => s.count()),
+    // Solo los datos de los documentos (sin descifrar las fotos): para avisar vencimientos.
+    async listDocumentMeta() {
+      const records = await run(DOCS, 'readonly', (s) => s.getAll());
+      return Promise.all(records.filter((r) => r.meta).map(async (r) => ({ id: r.id, ...(await decryptJson(key, r.meta)) })));
+    },
     async listDocuments() {
       const records = await run(DOCS, 'readonly', (s) => s.getAll());
       return Promise.all(records.filter((r) => r.meta).map((r) => decryptDocument(key, r)));
@@ -79,6 +117,15 @@ export function createStore(key) {
     },
     deleteDocument: (id) => run(DOCS, 'readwrite', (s) => s.delete(id)),
     clearDocuments: () => run(DOCS, 'readwrite', (s) => s.clear()),
+    // Recordatorios ya mostrados (cifrado: incluye identificadores y fechas de pago).
+    async loadNotified() {
+      const box = await run(VAULT, 'readonly', (s) => s.get('notified'));
+      return box ? decryptJson(key, box).catch(() => ({})) : {};
+    },
+    async saveNotified(items) {
+      const box = await encryptJson(key, items);
+      await run(VAULT, 'readwrite', (s) => s.put(box, 'notified'));
+    },
   };
 }
 
@@ -96,7 +143,9 @@ export async function openSession(key) {
   let state = await store.loadState();
 
   const legacy = Object.fromEntries(Object.entries(LEGACY_KEYS).map(([name, k]) => [name, readLegacyJson(k)]));
-  const legacyDocs = (await run(DOCS, 'readonly', (s) => s.getAll())).filter((r) => !r.meta);
+  // Los documentos sin cifrar de versiones antiguas se buscan una sola vez (no hace falta leer todas las fotos en cada desbloqueo).
+  const migrated = await run(VAULT, 'readonly', (s) => s.get('legacyDone'));
+  const legacyDocs = migrated ? [] : (await run(DOCS, 'readonly', (s) => s.getAll())).filter((r) => !r.meta);
   const hasLegacy = Object.values(legacy).some((v) => v !== null) || legacyDocs.length > 0;
 
   if (hasLegacy) {
@@ -116,12 +165,27 @@ export async function openSession(key) {
     }
     Object.values(LEGACY_KEYS).forEach((k) => localStorage.removeItem(k));
   }
+  if (!migrated) await run(VAULT, 'readwrite', (s) => s.put(1, 'legacyDone'));
 
   return { store, state: state ?? EMPTY_STATE };
 }
 
+// ¿Quedaron datos cifrados de una instalación anterior (por ejemplo, si se borró la bóveda del navegador)?
+// Sin su código no se pueden abrir; los documentos antiguos sin cifrar no cuentan (se cifran al crear el código).
+export async function hasEncryptedData() {
+  const [states, docs] = await Promise.all([run(VAULT, 'readonly', (s) => s.count('state')), run(DOCS, 'readonly', (s) => s.getAll())]);
+  return states > 0 || docs.some((r) => r.meta);
+}
+
 // Borra todos los datos de la app en este dispositivo.
 export async function wipeAllData() {
+  // Este teléfono deja de recibir avisos del grupo (el servidor borra la suscripción al ver que ya no existe).
+  try {
+    const reg = await navigator.serviceWorker?.getRegistration();
+    await (await reg?.pushManager?.getSubscription())?.unsubscribe();
+  } catch {
+    // sin avisos
+  }
   await run(DOCS, 'readwrite', (s) => s.clear());
   await run(VAULT, 'readwrite', (s) => s.clear());
   Object.values(LEGACY_KEYS).forEach((k) => localStorage.removeItem(k));

@@ -59,9 +59,13 @@ export async function startSyncServer() {
     end $$;
     grant service_role to authenticator;
     grant usage on schema public to service_role;`]);
+  // Igual que Supabase: todo lo nuevo en "public" queda permitido a anon/authenticated salvo que el SQL lo quite.
+  psql(['-c', `alter default privileges in schema public grant all on functions to anon, authenticated, service_role;
+    alter default privileges in schema public grant all on tables to anon, authenticated, service_role;
+    alter default privileges in schema public grant all on sequences to anon, authenticated, service_role;`]);
   psql(['-f', path.resolve('supabase/setup.sql')]);
   psql(['-f', path.resolve('supabase/push.sql')]);
-  psql(['-c', 'truncate public.shared_entries, public.push_subscriptions, public.push_schedule, public.push_groups']);
+  psql(['-c', 'truncate public.shared_entries, public.push_subscriptions, public.push_schedule, public.push_groups, public.push_senders']);
 
   const conf = path.join(os.tmpdir(), 'mi-gestor-pgrst.conf');
   fs.writeFileSync(

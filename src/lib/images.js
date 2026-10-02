@@ -25,7 +25,19 @@ export async function compressImage(file, maxSide = 1600, quality = 0.85) {
   ctx.fillStyle = '#ffffff'; // JPEG no admite transparencia
   ctx.fillRect(0, 0, canvas.width, canvas.height);
   ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-  return new Promise((resolve) => canvas.toBlob((blob) => resolve(blob ?? file), 'image/jpeg', quality));
+  return new Promise((resolve) =>
+    canvas.toBlob(
+      (blob) => {
+        // Libera la memoria del lienzo enseguida (en teléfonos con poca memoria importa).
+        canvas.width = 0;
+        canvas.height = 0;
+        img.src = '';
+        resolve(blob ?? file);
+      },
+      'image/jpeg',
+      quality
+    )
+  );
 }
 
 export function blobToDataUrl(blob) {

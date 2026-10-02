@@ -18,5 +18,6 @@ export function expiryStatus(expiry, today) {
   if (!expiry) return null;
   if (expiry < today) return { label: 'Vencido', tone: 'expense' };
   const days = Math.round((new Date(expiry) - new Date(today)) / 86400000);
-  return days <= 30 ? { label: `Vence en ${days} días`, tone: 'warn' } : null;
+  if (days > 30) return null;
+  return { label: days === 0 ? 'Vence hoy' : days === 1 ? 'Vence mañana' : `Vence en ${days} días`, tone: 'warn' };
 }

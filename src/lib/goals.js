@@ -1,10 +1,12 @@
 import { parseKey, todayKey } from './dates';
-import { uid } from './format';
+import { MAX_AMOUNT, uid } from './format';
 import { isDateKey } from './validate';
 
 export const GOAL_EMOJIS = ['🎯', '✈️', '🏠', '🚗', '🎓', '💻', '🎁', '🏥', '🐶', '💍'];
 
 export const goalSaved = (goal) => Math.max(0, goal.entries.reduce((sum, e) => sum + e.amount, 0));
+
+export const goalExpired = (goal, today = todayKey()) => !!goal.deadline && goal.deadline < today;
 
 // Cuánto habría que ahorrar cada mes para llegar a la fecha (si la tiene).
 export function monthlyNeeded(goal, today = todayKey()) {
@@ -23,10 +25,10 @@ export function sanitizeGoals(list) {
     if (!g || typeof g !== 'object') return [];
     const name = typeof g.name === 'string' ? g.name.trim().slice(0, 40) : '';
     const target = Number(g.target);
-    if (!name || !(target > 0 && target < 1e12)) return [];
+    if (!name || !(target > 0 && target < MAX_AMOUNT)) return [];
     const entries = (Array.isArray(g.entries) ? g.entries : []).slice(0, 2000).flatMap((e) => {
       const amount = Number(e?.amount);
-      return Number.isFinite(amount) && amount !== 0 && Math.abs(amount) < 1e12 && isDateKey(e.date)
+      return Number.isFinite(amount) && amount !== 0 && Math.abs(amount) < MAX_AMOUNT && isDateKey(e.date)
         ? [{ id: uid(), date: e.date, amount: Math.round(amount * 100) / 100 }]
         : [];
     });

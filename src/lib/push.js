@@ -63,7 +63,18 @@ export async function disablePush(groups) {
 }
 
 // Avisa a los demás teléfonos del grupo que hay novedades (sin decir cuáles).
-export const notifyGroup = (group, deviceTag) => callFunction(group.server, { action: 'notify', group: group.id, tag: deviceTag }).catch(() => {});
+// Devuelve false si el servidor no tiene la función de avisos (para no volver a intentarlo).
+export const notifyGroup = (group, deviceTag) =>
+  callFunction(group.server, { action: 'notify', group: group.id, tag: deviceTag }).then(
+    () => true,
+    (err) => (err.status === 404 ? false : undefined)
+  );
+
+// ¿Sigue viva la suscripción de este teléfono? (el sistema puede anularla o cambiarla).
+export async function currentEndpoint() {
+  const reg = await navigator.serviceWorker.ready;
+  return (await reg.pushManager.getSubscription())?.endpoint ?? null;
+}
 
 // Horas de aviso (9:00 del día que corresponda) de los próximos 60 días.
 export function reminderTimes(items, now = new Date()) {

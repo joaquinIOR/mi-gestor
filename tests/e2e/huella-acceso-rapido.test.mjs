@@ -66,6 +66,10 @@ await p2.getByRole('button',{name:/Más opciones/}).click(); ok(await p2.locator
 await p2.waitForTimeout(300); await p2.screenshot({ path: S+'/quick.png' });
 const man = await p.evaluate(async()=> (await (await fetch('manifest.webmanifest')).json()).shortcuts.map(s=>s.name+'→'+s.url));
 ok(man.join(',')==='Gasto rápido→./?quick=expense,Ingreso rápido→./?quick=income','atajos del icono en el manifiesto');
+// La primera ventana quedó bloqueada al usar la app en la segunda (sin pedir la huella sola).
+ok(await p.getByRole('button',{name:'Desbloquear'}).isVisible(), 'abrir la app en otra ventana bloquea la anterior');
+await p2.close();
+await p.getByPlaceholder('Código').fill('codigo-nuevo-99'); await p.getByRole('button',{name:'Desbloquear'}).click(); await p.getByRole('heading',{name:'Inicio'}).waitFor();
 // desactivar huella
 await p.getByLabel('Ajustes').click(); await p.getByText('Desbloquear con huella o Face ID').click();
 ok(!(await p.evaluate(()=>localStorage.getItem('miGestor.vault'))).includes('biometric'),'desactivar huella elimina su clave');

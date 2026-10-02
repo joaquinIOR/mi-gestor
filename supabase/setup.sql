@@ -49,6 +49,13 @@ begin
   if p_group !~ '^[0-9a-f]{64}$' then
     raise exception 'grupo inválido';
   end if;
+  -- Límites para que nadie llene el plan gratuito: 20.000 entradas por grupo y 200.000 en total.
+  if not exists (select 1 from public.shared_entries where id = p_id) then
+    if (select count(*) from public.shared_entries where group_id = p_group) >= 20000
+       or (select count(*) from public.shared_entries) >= 200000 then
+      raise exception 'límite de entradas alcanzado';
+    end if;
+  end if;
   insert into public.shared_entries (id, group_id, iv, data, updated_at)
   values (p_id, p_group, p_iv, p_data, ts)
   on conflict (id) do update
@@ -61,7 +68,8 @@ begin
 end;
 $$;
 
-revoke all on function public.mg_pull(text, timestamptz) from public;
-revoke all on function public.mg_push(uuid, text, text, text) from public;
+-- Supabase da permiso a anon/authenticated en toda función nueva: se quita y se concede solo lo necesario.
+revoke all on function public.mg_pull(text, timestamptz) from public, anon, authenticated;
+revoke all on function public.mg_push(uuid, text, text, text) from public, anon, authenticated;
 grant execute on function public.mg_pull(text, timestamptz) to anon, authenticated;
 grant execute on function public.mg_push(uuid, text, text, text) to anon, authenticated;

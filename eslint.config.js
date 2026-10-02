@@ -30,4 +30,8 @@ export default defineConfig([
     files: ['vite.config.js'],
     languageOptions: { globals: globals.node },
   },
+  {
+    files: ['src/service-worker.js'],
+    languageOptions: { globals: globals.serviceworker },
+  },
 ])

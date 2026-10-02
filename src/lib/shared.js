@@ -2,9 +2,9 @@
 // Cada entrada se cifra en el teléfono con la clave del grupo (AES-GCM 256) antes de enviarse a Supabase.
 // El servidor solo ve: un identificador de grupo al azar, un identificador de entrada y datos ilegibles.
 import { fromBase64, randomBytes, toBase64 } from './crypto';
-import { toKey } from './dates';
+import { parseKey, toKey } from './dates';
 import { isDateKey } from './validate';
-import { uid } from './format';
+import { MAX_AMOUNT, uid } from './format';
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
@@ -24,6 +24,16 @@ export class SyncError extends Error {
 const SUPABASE_URL = /^https:\/\/[a-z0-9-]+\.supabase\.co$/;
 const LOCAL_URL = /^http:\/\/(localhost|127\.0\.0\.1):\d+$/;
 
+// Las claves antiguas de Supabase son JWT: la «service_role» da acceso total y nunca debe ir en la app.
+function jwtRole(key) {
+  if (!key.startsWith('eyJ')) return null;
+  try {
+    return JSON.parse(atob(key.split('.')[1].replace(/-/g, '+').replace(/_/g, '/'))).role ?? null;
+  } catch {
+    return null;
+  }
+}
+
 export function normalizeServer(url, key) {
   const clean = String(url ?? '').trim().replace(/\/+$/, '').replace(/\/rest\/v1$/, '');
   const allowLocal = import.meta.env.VITE_ALLOW_LOCAL_SYNC === '1';
@@ -31,20 +41,27 @@ export function normalizeServer(url, key) {
     throw new SyncError('La dirección debe ser la de tu proyecto: https://xxxx.supabase.co');
   }
   const cleanKey = String(key ?? '').trim();
-  if (!/^(eyJ[\w-]+\.[\w-]+\.[\w-]+|sb_publishable_[\w-]+)$/.test(cleanKey)) {
+  if (!/^(eyJ[\w-]+\.[\w-]+\.[\w-]+|sb_publishable_[\w-]+)$/.test(cleanKey) || jwtRole(cleanKey) === 'service_role') {
     throw new SyncError('La clave debe ser la «publishable» o «anon» de Supabase (nunca la secreta).');
   }
   return { url: clean, key: cleanKey };
 }
 
+const RPC_TIMEOUT_MS = 20000;
+
 export async function rpc(server, fn, body) {
   const headers = { apikey: server.key, 'Content-Type': 'application/json' };
   if (server.key.startsWith('eyJ')) headers.Authorization = `Bearer ${server.key}`;
   let res;
+  // Con señal débil la petición podría quedar colgada: se corta a los 20 s y se reintenta en la próxima vuelta.
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), RPC_TIMEOUT_MS);
   try {
-    res = await fetch(`${server.url}/rest/v1/rpc/${fn}`, { method: 'POST', headers, body: JSON.stringify(body), cache: 'no-store' });
+    res = await fetch(`${server.url}/rest/v1/rpc/${fn}`, { method: 'POST', headers, body: JSON.stringify(body), cache: 'no-store', signal: controller.signal });
   } catch {
     throw new SyncError('Sin conexión con el servidor.', 0);
+  } finally {
+    clearTimeout(timer);
   }
   if (!res.ok) {
     const text = await res.text().catch(() => '');
@@ -101,6 +118,7 @@ export function createGroup({ name, server, me }) {
     name: name.trim().slice(0, 40) || 'Mi grupo',
     server,
     me: me.id,
+    epoch: uid(),
     cursor: null,
     entries: { [me.id]: me },
     outbox: [me],
@@ -137,8 +155,29 @@ export function parseInvite(text) {
   return { name: String(payload.n ?? 'Grupo').slice(0, 40), id: payload.g, key: payload.k, server: normalizeServer(payload.u, payload.p) };
 }
 
+// Unirse como integrante nuevo, o retomar el perfil que ya se tenía (por ejemplo, en un teléfono nuevo).
 export function joinGroup(invite, me) {
-  return { ...invite, me: me.id, cursor: null, entries: { [me.id]: me }, outbox: [me], lastSync: null, error: null };
+  return { ...invite, me: me.id, epoch: uid(), cursor: null, entries: { [me.id]: me }, outbox: [me], lastSync: null, error: null };
+}
+
+export function rejoinGroup(invite, existing) {
+  return { ...invite, me: existing.id, epoch: uid(), cursor: null, entries: {}, outbox: [], lastSync: null, error: null };
+}
+
+// Integrantes que ya están en el servidor (para «¿Ya eras parte? Toca tu nombre»).
+export async function remoteMembers(invite) {
+  const group = { id: invite.id, key: invite.key };
+  const rows = (await rpc(invite.server, 'mg_pull', { p_group: invite.id, p_since: '-infinity' })) ?? [];
+  const out = [];
+  for (const row of rows) {
+    try {
+      const entry = sanitizeSharedEntry(await decryptRow(group, row));
+      if (entry?.kind === 'member' && !entry.deleted && entry.id === row.id) out.push(entry);
+    } catch {
+      // ilegible: se ignora
+    }
+  }
+  return out.sort((a, b) => a.name.localeCompare(b.name));
 }
 
 // --- Validación de lo que llega del servidor (aunque esté cifrado, se valida igual) ---
@@ -148,7 +187,12 @@ const isId = (v) => typeof v === 'string' && /^[\w-]{8,64}$/.test(v);
 
 export function sanitizeSharedEntry(e) {
   if (!e || typeof e !== 'object' || !isId(e.id)) return null;
-  const base = { id: e.id, updatedAt: Number.isFinite(e.updatedAt) ? e.updatedAt : 0, deleted: e.deleted === true };
+  const base = {
+    id: e.id,
+    updatedAt: Number.isFinite(e.updatedAt) ? e.updatedAt : 0,
+    deleted: e.deleted === true,
+    ...(isId(e.updatedBy) ? { updatedBy: e.updatedBy } : {}),
+  };
   if (e.kind === 'member') {
     const name = str(e.name, 30).trim();
     if (!name) return null;
@@ -160,7 +204,7 @@ export function sanitizeSharedEntry(e) {
     return { ...base, kind: 'item', text, checked: e.checked === true, checkedBy: isId(e.checkedBy) ? e.checkedBy : null, createdBy: isId(e.createdBy) ? e.createdBy : null };
   }
   const amount = Number(e.amount);
-  if (!(amount > 0 && amount < 1e12) || !isDateKey(e.date)) return null;
+  if (!(amount > 0 && amount < MAX_AMOUNT) || !isDateKey(e.date)) return null;
   if (e.kind === 'bill') {
     const name = str(e.name, 40).trim();
     const participants = Array.isArray(e.participants) ? [...new Set(e.participants.filter(isId))].slice(0, 20) : [];
@@ -174,6 +218,9 @@ export function sanitizeSharedEntry(e) {
       date: e.date,
       reminder: Number.isInteger(e.reminder) && e.reminder >= 0 && e.reminder <= 60 ? e.reminder : null,
       participants,
+      // Para todas: también para quien se una después.
+      everyone: e.everyone === true,
+      ...(/^\d{4}-\d{2}$/.test(e.since) ? { since: e.since } : {}),
       createdBy: isId(e.createdBy) ? e.createdBy : null,
     };
   }
@@ -211,7 +258,7 @@ export function sanitizeGroups(list) {
         if (clean) entries[clean.id] = { ...clean, _ts: typeof e._ts === 'string' ? e._ts : null };
       }
       const outbox = (Array.isArray(g.outbox) ? g.outbox : []).map(sanitizeSharedEntry).filter(Boolean);
-      return [{ id: g.id, key: g.key, name: str(g.name, 40) || 'Grupo', server: normalizeServer(g.server?.url, g.server?.key), me: g.me, cursor: null, entries, outbox, lastSync: null, error: null }];
+      return [{ id: g.id, key: g.key, name: str(g.name, 40) || 'Grupo', server: normalizeServer(g.server?.url, g.server?.key), me: g.me, epoch: uid(), cursor: null, entries, outbox, lastSync: null, error: null }];
     } catch {
       return [];
     }
@@ -220,16 +267,20 @@ export function sanitizeGroups(list) {
 
 // --- Sincronización ---
 
-// Envía lo pendiente y trae lo nuevo. Devuelve solo los cambios, para fusionarlos con el estado actual.
-export async function syncGroup(group) {
-  const pushed = [];
-  for (const entry of group.outbox) {
-    await rpc(group.server, 'mg_push', await encryptEntry(group, entry));
-    pushed.push(`${entry.id}:${entry.updatedAt}`);
-  }
+// ¿Gana el cambio pendiente de este teléfono sobre la versión del servidor?
+// Un borrado es definitivo; si no, gana el cambio más reciente.
+export function localWins(local, remote) {
+  if (!remote || remote._ts === local._base) return true;
+  if (remote.deleted) return false;
+  if (local.deleted) return true;
+  return local.updatedAt > remote.updatedAt;
+}
 
+// Trae lo nuevo y después envía lo pendiente (así un cambio viejo, por ejemplo hecho sin señal o
+// restaurado de una copia, no pisa uno más nuevo). Devuelve solo los cambios, para fusionarlos.
+export async function syncGroup(group) {
   const since = group.cursor ? new Date(new Date(group.cursor).getTime() - PULL_OVERLAP_MS).toISOString() : '-infinity';
-  const rows = await rpc(group.server, 'mg_pull', { p_group: group.id, p_since: since });
+  const rows = (await rpc(group.server, 'mg_pull', { p_group: group.id, p_since: since })) ?? [];
   const incoming = [];
   let cursor = group.cursor;
   for (const row of rows) {
@@ -241,7 +292,20 @@ export async function syncGroup(group) {
       // Entrada que no se puede descifrar (manipulada o de otra clave): se ignora.
     }
   }
-  return { id: group.id, pushed, incoming, cursor, firstSync: !group.cursor };
+
+  const remote = new Map(incoming.map((e) => [e.id, e]));
+  const pushed = [];
+  for (const entry of group.outbox) {
+    const theirs = remote.get(entry.id);
+    // Si alguien lo cambió después de que lo editamos aquí, se resuelve antes de enviar.
+    if (localWins({ ...entry, _base: entry._base ?? group.entries[entry.id]?._ts ?? null }, theirs)) {
+      const { _base, ...clean } = entry;
+      await rpc(group.server, 'mg_push', await encryptEntry(group, clean));
+    }
+    pushed.push(`${entry.id}:${entry.updatedAt}`);
+  }
+  // La primera vuelta trae todo lo anterior: eso no se anuncia como novedad.
+  return { id: group.id, epoch: group.epoch, pushed, incoming, cursor, firstSync: !group.cursor && !group.lastSync };
 }
 
 // Fusiona el resultado con la versión actual del grupo (que pudo cambiar mientras se sincronizaba).
@@ -252,23 +316,36 @@ export function applySync(group, result) {
   const news = [];
   for (const entry of result.incoming) {
     const local = pending.get(entry.id);
-    if (local && local.updatedAt > entry.updatedAt) continue;
+    if (local && localWins({ ...local, _base: local._base ?? entries[entry.id]?._ts ?? null }, entry)) continue;
     const before = entries[entry.id];
+    // Un borrado es definitivo: una versión vieja que llegue después no lo revive.
+    if (before?.deleted && before._ts && !entry.deleted) continue;
     if (!before || before._ts !== entry._ts) {
       if (!before && entry.createdBy !== group.me && entry.id !== group.me) news.push(entry);
+      // Cambios o borrados de otra persona en gastos y pagos (cambian los saldos): también se avisan.
+      else if (before && before._ts && entry.updatedBy && entry.updatedBy !== group.me && ['expense', 'settle', 'bill'].includes(entry.kind) && (entry.deleted || entry.amount !== before.amount)) {
+        news.push({ ...entry, change: entry.deleted ? 'deleted' : 'edited' });
+      }
+      if (local) pending.delete(entry.id);
       entries[entry.id] = entry;
     }
   }
   return {
-    group: { ...group, entries, outbox, cursor: result.cursor, lastSync: Date.now(), error: null },
+    group: { ...group, entries, outbox: outbox.filter((e) => pending.has(e.id)), cursor: result.cursor, lastSync: Date.now(), error: null },
     news: result.firstSync ? [] : news,
   };
 }
 
 // Guarda un cambio local: se ve al instante y queda pendiente de enviar.
 export function upsertLocal(group, entry) {
-  const next = { ...entry, updatedAt: Date.now() };
-  return { ...group, entries: { ...group.entries, [next.id]: { ...next, _ts: group.entries[next.id]?._ts ?? null } }, outbox: [...group.outbox.filter((e) => e.id !== next.id), next] };
+  const { _ts, _base, change: _change, ...clean } = entry;
+  const next = { ...clean, updatedAt: Math.max(Date.now(), (group.entries[clean.id]?.updatedAt ?? 0) + 1), updatedBy: group.me };
+  const base = group.outbox.find((e) => e.id === next.id)?._base ?? group.entries[next.id]?._ts ?? null;
+  return {
+    ...group,
+    entries: { ...group.entries, [next.id]: { ...next, _ts: group.entries[next.id]?._ts ?? null } },
+    outbox: [...group.outbox.filter((e) => e.id !== next.id), { ...next, _base: base }],
+  };
 }
 
 // --- Cálculos ---
@@ -283,37 +360,59 @@ export const activity = (group) =>
     .filter((e) => (e.kind === 'expense' || e.kind === 'settle') && !e.deleted)
     .sort((a, b) => b.date.localeCompare(a.date) || b.updatedAt - a.updatedAt);
 
+// Partes exactas: en pesos enteros (o centavos si el monto los tiene). Lo que sobra al dividir se reparte
+// de a 1 empezando por quien pagó, igual en todos los teléfonos. Ej.: $10.000 entre 3 → 3.334 + 3.333 + 3.333.
+export function splitShares(amount, participants, paidBy) {
+  const sorted = [...new Set(participants)].sort();
+  if (!sorted.length) return {};
+  const ids = sorted.includes(paidBy) ? [paidBy, ...sorted.filter((id) => id !== paidBy)] : sorted;
+  const scale = Number.isInteger(amount) ? 1 : 100;
+  const total = Math.round(amount * scale);
+  const base = Math.floor(total / ids.length);
+  let rest = total - base * ids.length;
+  const out = {};
+  for (const id of ids) {
+    out[id] = (base + (rest > 0 ? 1 : 0)) / scale;
+    if (rest > 0) rest -= 1;
+  }
+  return out;
+}
+
+const cents = (v) => Math.round(v * 100) / 100;
+export const EPSILON = 0.005;
+
 // Saldo de cada persona: positivo = le deben, negativo = debe.
 export function balances(group) {
   const net = Object.fromEntries(members(group).map((m) => [m.id, 0]));
   for (const e of activity(group)) {
     if (e.kind === 'expense') {
-      const share = e.amount / e.participants.length;
+      const shares = splitShares(e.amount, e.participants, e.paidBy);
       net[e.paidBy] = (net[e.paidBy] ?? 0) + e.amount;
-      for (const p of e.participants) net[p] = (net[p] ?? 0) - share;
+      for (const [p, share] of Object.entries(shares)) net[p] = (net[p] ?? 0) - share;
     } else {
       net[e.from] = (net[e.from] ?? 0) + e.amount;
       net[e.to] = (net[e.to] ?? 0) - e.amount;
     }
   }
+  for (const id of Object.keys(net)) net[id] = cents(net[id]);
   return net;
 }
 
 // Propone el menor número de pagos para quedar a mano.
 export function settlements(group) {
   const net = balances(group);
-  const debtors = Object.entries(net).filter(([, v]) => v < -0.5).map(([id, v]) => ({ id, v: -v })).sort((a, b) => b.v - a.v);
-  const creditors = Object.entries(net).filter(([, v]) => v > 0.5).map(([id, v]) => ({ id, v })).sort((a, b) => b.v - a.v);
+  const debtors = Object.entries(net).filter(([, v]) => v < -EPSILON).map(([id, v]) => ({ id, v: -v })).sort((a, b) => b.v - a.v);
+  const creditors = Object.entries(net).filter(([, v]) => v > EPSILON).map(([id, v]) => ({ id, v })).sort((a, b) => b.v - a.v);
   const out = [];
   let i = 0;
   let j = 0;
   while (i < debtors.length && j < creditors.length) {
-    const amount = Math.min(debtors[i].v, creditors[j].v);
-    out.push({ from: debtors[i].id, to: creditors[j].id, amount: Math.round(amount) });
-    debtors[i].v -= amount;
-    creditors[j].v -= amount;
-    if (debtors[i].v < 0.5) i += 1;
-    if (creditors[j].v < 0.5) j += 1;
+    const amount = cents(Math.min(debtors[i].v, creditors[j].v));
+    if (amount > EPSILON) out.push({ from: debtors[i].id, to: creditors[j].id, amount });
+    debtors[i].v = cents(debtors[i].v - amount);
+    creditors[j].v = cents(creditors[j].v - amount);
+    if (debtors[i].v < EPSILON) i += 1;
+    if (creditors[j].v < EPSILON) j += 1;
   }
   return out;
 }
@@ -328,7 +427,7 @@ export function myShares(groups, from, to) {
       .map((e) => ({
         id: `${group.id}:${e.id}`,
         type: 'expense',
-        amount: Math.round((e.amount / e.participants.length) * 100) / 100,
+        amount: splitShares(e.amount, e.participants, e.paidBy)[group.me],
         category: e.category,
         description: e.description || e.category,
         date: e.date,
@@ -353,9 +452,62 @@ export const billsOf = (group) =>
     .filter((e) => e.kind === 'bill' && !e.deleted)
     .sort((a, b) => Number(a.date.slice(8)) - Number(b.date.slice(8)));
 
-// Pago registrado de una cuenta en un mes ("YYYY-MM"), si lo hay.
-export const billPayment = (group, billId, period) =>
-  Object.values(group.entries).find((e) => e.kind === 'expense' && !e.deleted && e.billId === billId && e.period === period) ?? null;
+// Pagos registrados de una cuenta en un mes ("YYYY-MM").
+export const billPayments = (group, billId, period) =>
+  Object.values(group.entries).filter((e) => e.kind === 'expense' && !e.deleted && e.billId === billId && e.period === period);
+export const billPayment = (group, billId, period) => billPayments(group, billId, period)[0] ?? null;
+
+// Entre quiénes se divide: «todas» incluye a quien se unió después; si no, solo quienes siguen en el grupo.
+export function billParticipants(group, bill) {
+  const ids = members(group).map((m) => m.id);
+  if (bill.everyone) return ids;
+  const still = bill.participants.filter((id) => ids.includes(id));
+  return still.length ? still : ids;
+}
+
+const periodOf = (y, m) => toKey(new Date(y, m, 1)).slice(0, 7);
+
+// El mes que toca pagar de una cuenta: el anterior si quedó impago y ya venció; si no, el actual.
+// Si el actual ya está pagado y el próximo vence pronto, se puede adelantar.
+export function billStatus(group, bill, today) {
+  const y = Number(today.slice(0, 4));
+  const m = Number(today.slice(5, 7)) - 1;
+  const current = today.slice(0, 7);
+  const earliestPaid = Object.values(group.entries)
+    .filter((e) => e.kind === 'expense' && !e.deleted && e.billId === bill.id)
+    .reduce((min, e) => (!min || e.period < min ? e.period : min), null);
+  const since = bill.since ?? earliestPaid ?? current;
+  const prev = periodOf(y, m - 1);
+  const prevDue = billDueDate(bill, y, m - 1);
+  if (prev >= since && prevDue < today && !billPayment(group, bill.id, prev)) {
+    return { period: prev, due: prevDue, paid: null, late: true, payments: 0 };
+  }
+  const due = billDueDate(bill, y, m);
+  const payments = billPayments(group, bill.id, current);
+  const paid = payments[0] ?? null;
+  const next = periodOf(y, m + 1);
+  const nextDue = billDueDate(bill, y, m + 1);
+  const nextPaid = billPayment(group, bill.id, next);
+  const daysToNext = Math.round((parseKey(nextDue) - parseKey(today)) / 86400000);
+  return {
+    period: current,
+    due,
+    paid,
+    late: !paid && due < today,
+    payments: payments.length,
+    next: { period: next, due: nextDue, paid: nextPaid, canPay: !!paid && !nextPaid && daysToNext <= 15 },
+  };
+}
+
+// Identificador fijo para el pago de una cuenta en un mes: si dos personas pagan la misma cuenta a la vez
+// (o una sin señal), queda un solo pago y no se cuenta dos veces.
+export async function billPaymentId(group, billId, period) {
+  const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', encoder.encode(`${group.id}:${billId}:${period}`)));
+  const hex = Array.from(digest.slice(0, 16), (b) => b.toString(16).padStart(2, '0')).join('');
+  const id = `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20, 32)}`;
+  // Si ese pago se borró antes, se usa uno nuevo (un borrado es definitivo).
+  return group.entries[id]?.deleted ? uid() : id;
+}
 
 // Fecha de vencimiento de la cuenta en un mes concreto (mismo día; si el mes es más corto, el último día).
 export function billDueDate(bill, y, m) {

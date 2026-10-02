@@ -5,6 +5,7 @@ export const FREQUENCIES = [
   { value: 'daily', label: 'Diario' },
   { value: 'weekly', label: 'Semanal' },
   { value: 'monthly', label: 'Mensual' },
+  { value: 'yearly', label: 'Anual' },
 ];
 
 export const REMINDERS = [
@@ -60,8 +61,41 @@ export function occurrences(item, from, to) {
       m += 1;
       if (m > 11) { m = 0; y += 1; }
     }
+  } else if (item.frequency === 'yearly') {
+    // Cada año el mismo día (un 29 de febrero cae el 28 en los años que no son bisiestos).
+    const mo = start.getMonth();
+    const day = start.getDate();
+    for (let y = lo.getFullYear(); ; y += 1) {
+      const d = new Date(y, mo, Math.min(day, daysInMonth(y, mo)));
+      if (d > hi) break;
+      if (d >= lo) out.push(toKey(d));
+    }
   }
   return out;
+}
+
+// Compra en cuotas: la fecha de la última cuota (n pagos mensuales desde `date`).
+export function lastInstallment(date, count) {
+  const start = parseKey(date);
+  return occurrences({ date, frequency: 'monthly' }, start, new Date(start.getFullYear(), start.getMonth() + count, 31))[count - 1];
+}
+
+// «Pago k de n» de una serie mensual con fecha final (por ejemplo, las cuotas).
+export function installmentOf(item) {
+  if (item.frequency !== 'monthly' || !item.until || !item.occurrence) return null;
+  const all = occurrences(item, parseKey(item.date), parseKey(item.until));
+  const k = all.indexOf(item.occurrence) + 1;
+  return k > 0 && all.length > 1 && all.length <= 60 ? { k, n: all.length } : null;
+}
+
+// Repeticiones marcadas como «Ya lo pagué»: dejan de avisar.
+export const withPaid = (movements) =>
+  movements.map((m) => (m.paidDates?.length ? { ...m, isPaid: (occ) => m.paidDates.includes(occ) } : m));
+
+// Cambiar o terminar una serie «desde una fecha» sin tocar lo que ya pasó: la serie original termina el día
+// anterior y, si hay cambios, sigue una serie nueva desde esa fecha.
+export function endSeriesBefore(item, occurrence) {
+  return { ...item, until: toKey(addDays(parseKey(occurrence), -1)) };
 }
 
 // Todas las apariciones de los movimientos en el rango, ordenadas por fecha.
@@ -78,5 +112,6 @@ export function sumTotals(list) {
     if (item.type === 'income') income += item.amount;
     else expense += item.amount;
   }
-  return { income, expense, balance: income - expense };
+  const r = (x) => Math.round(x * 100) / 100;
+  return { income: r(income), expense: r(expense), balance: r(income - expense) };
 }

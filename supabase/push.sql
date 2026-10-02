@@ -32,6 +32,14 @@ create table if not exists public.push_groups (
   last_notified timestamptz not null
 );
 
+-- Último aviso enviado por cada teléfono en cada grupo (así no se pierde el cambio de otra persona).
+create table if not exists public.push_senders (
+  group_id text not null,
+  tag text not null check (length(tag) <= 64),
+  last_notified timestamptz not null,
+  primary key (group_id, tag)
+);
+
 create table if not exists public.push_schedule (
   id bigserial primary key,
   endpoint text not null,
@@ -44,7 +52,9 @@ alter table public.push_config enable row level security;
 alter table public.push_subscriptions enable row level security;
 alter table public.push_groups enable row level security;
 alter table public.push_schedule enable row level security;
-revoke all on table public.push_config, public.push_subscriptions, public.push_groups, public.push_schedule from anon, authenticated;
+alter table public.push_senders enable row level security;
+revoke all on table public.push_config, public.push_subscriptions, public.push_groups, public.push_schedule, public.push_senders from anon, authenticated;
+revoke all on sequence public.push_schedule_id_seq from anon, authenticated;
 
 -- ===== Funciones que usa la app (clave publishable) =====
 
@@ -98,11 +108,14 @@ returns void language sql security definer set search_path = public as $$
   update public.push_config set public_key = p_public, private_key = p_private where id = 1 and public_key is null;
 $$;
 
--- Teléfonos del grupo a los que avisar (excepto el que hizo el cambio). Como máximo un aviso cada 20 s por grupo.
+-- Teléfonos del grupo a los que avisar (excepto el que hizo el cambio). Como máximo un aviso cada 20 s por
+-- teléfono que avisa, y uno cada 5 s por grupo (para que nadie pueda saturar a los demás).
 create or replace function public.mg_push_targets(p_group text, p_exclude_tag text)
 returns table (endpoint text, p256dh text, auth text) language plpgsql security definer set search_path = public as $$
 begin
-  if exists (select 1 from public.push_groups g where g.group_id = p_group and g.last_notified > now() - interval '20 seconds') then
+  if length(p_exclude_tag) > 64
+     or exists (select 1 from public.push_senders x where x.group_id = p_group and x.tag = p_exclude_tag and x.last_notified > now() - interval '20 seconds')
+     or exists (select 1 from public.push_groups g where g.group_id = p_group and g.last_notified > now() - interval '5 seconds') then
     return;
   end if;
   if not exists (select 1 from public.push_subscriptions s where s.group_id = p_group) then
@@ -110,6 +123,8 @@ begin
   end if;
   insert into public.push_groups (group_id, last_notified) values (p_group, now())
   on conflict (group_id) do update set last_notified = now();
+  insert into public.push_senders (group_id, tag, last_notified) values (p_group, p_exclude_tag, now())
+  on conflict (group_id, tag) do update set last_notified = now();
   return query select s.endpoint, s.p256dh, s.auth from public.push_subscriptions s
     where s.group_id = p_group and s.tag <> p_exclude_tag;
 end $$;
@@ -132,7 +147,8 @@ $$;
 
 revoke all on function public.mg_push_register(text, text, text, text, text), public.mg_push_unregister(text),
   public.mg_push_schedule(text, timestamptz[]), public.mg_push_set_url(text, text), public.mg_push_config(),
-  public.mg_push_set_vapid(text, text), public.mg_push_targets(text, text), public.mg_push_due(), public.mg_push_remove(text) from public;
+  public.mg_push_set_vapid(text, text), public.mg_push_targets(text, text), public.mg_push_due(), public.mg_push_remove(text)
+  from public, anon, authenticated;
 grant execute on function public.mg_push_register(text, text, text, text, text), public.mg_push_unregister(text),
   public.mg_push_schedule(text, timestamptz[]), public.mg_push_set_url(text, text) to anon, authenticated;
 grant execute on function public.mg_push_config(), public.mg_push_set_vapid(text, text), public.mg_push_targets(text, text),

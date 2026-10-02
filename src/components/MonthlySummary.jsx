@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import { ArrowDownRight, ArrowUpRight, ChevronDown, FileSpreadsheet } from 'lucide-react';
 import { categoryEmoji } from '../lib/categories';
+import { MONTHS } from '../lib/dates';
 import { formatMoney } from '../lib/format';
 import { categoryComparison, downloadCsv, lastMonths, movementsCsv } from '../lib/summary';
 
@@ -30,11 +31,14 @@ export default function MonthlySummary({ movements, groups, cursor, currency }) 
   const slot = W / months.length;
   const y = (v) => TOP + plotH - (v / max) * plotH;
   const hasData = months.some((mo) => mo.income || mo.expense);
+  const now = new Date();
+  const title = cursor.y === now.getFullYear() && cursor.m === now.getMonth() ? 'Últimos 6 meses' : `6 meses hasta ${MONTHS[cursor.m].toLowerCase()}`;
+  const nameOf = (mo) => `${mo.name}${mo.future ? ' (previsto)' : ''}`;
 
   return (
     <section className="card summary">
       <div className="day-head">
-        <h3 className="card-title">Últimos 6 meses</h3>
+        <h3 className="card-title">{title}</h3>
         <div className="legend-inline" aria-hidden="true">
           <span>
             <i className="dot-lg" style={{ background: 'var(--chart-income)' }} /> Ingresos
@@ -47,7 +51,7 @@ export default function MonthlySummary({ movements, groups, cursor, currency }) 
 
       {hasData ? (
         <>
-          <svg viewBox={`0 0 ${W} ${H}`} className="chart" role="img" aria-label={`Ingresos y gastos de los últimos 6 meses. ${sel.name}: ingresos ${formatMoney(sel.income, currency)}, gastos ${formatMoney(sel.expense, currency)}.`}>
+          <svg viewBox={`0 0 ${W} ${H}`} className="chart" role="img" aria-label={`Ingresos y gastos: ${title.toLowerCase()}. ${nameOf(sel)}: ingresos ${formatMoney(sel.income, currency)}, gastos ${formatMoney(sel.expense, currency)}.`}>
             {[0.5, 1].map((t) => (
               <line key={t} x1={0} x2={W} y1={y(max * t)} y2={y(max * t)} className="grid" />
             ))}
@@ -58,7 +62,7 @@ export default function MonthlySummary({ movements, groups, cursor, currency }) 
               const xe = cx + 1;
               const active = i === selected;
               return (
-                <g key={`${mo.y}-${mo.m}`} className={active ? 'active' : ''} onClick={() => setSelected(i)}>
+                <g key={`${mo.y}-${mo.m}`} className={`${active ? 'active' : ''} ${mo.future ? 'future' : ''}`} onClick={() => setSelected(i)}>
                   <rect x={slot * i} y={0} width={slot} height={H} className="hit" />
                   <path d={barPath(xi, y(mo.income), BAR, TOP + plotH - y(mo.income))} fill="var(--chart-income)" />
                   <path d={barPath(xe, y(mo.expense), BAR, TOP + plotH - y(mo.expense))} fill="var(--chart-expense)" />
@@ -80,7 +84,7 @@ export default function MonthlySummary({ movements, groups, cursor, currency }) 
             })}
           </svg>
           <p className="summary-detail">
-            <b>{sel.name}:</b> ingresos {formatMoney(sel.income, currency)} · gastos {formatMoney(sel.expense, currency)} · balance{' '}
+            <b>{nameOf(sel)}:</b> ingresos {formatMoney(sel.income, currency)} · gastos {formatMoney(sel.expense, currency)} · balance{' '}
             <b className={sel.balance < 0 ? 'expense' : 'income'}>{formatMoney(sel.balance, currency)}</b>
           </p>
           <details className="summary-table">
@@ -97,7 +101,7 @@ export default function MonthlySummary({ movements, groups, cursor, currency }) 
               <tbody>
                 {months.map((mo) => (
                   <tr key={`${mo.y}-${mo.m}`}>
-                    <td>{mo.name}</td>
+                    <td>{nameOf(mo)}</td>
                     <td>{formatMoney(mo.income, currency)}</td>
                     <td>{formatMoney(mo.expense, currency)}</td>
                     <td>{formatMoney(mo.balance, currency)}</td>

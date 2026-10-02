@@ -24,6 +24,12 @@ export async function skipRecovery(page) {
   const code = await page.locator('.recovery-code').getAttribute('data-code');
   await page.getByRole('switch', { name: /Ya lo guardé/ }).check();
   await page.getByRole('button', { name: 'Continuar' }).click();
+  // Si el teléfono admite huella, la app la ofrece enseguida: aquí se deja para después.
+  const next = await Promise.race([
+    page.getByRole('button', { name: 'Ahora no' }).waitFor({ timeout: 8000 }).then(() => 'bio'),
+    page.locator('.app').waitFor({ timeout: 8000 }).then(() => 'app'),
+  ]).catch(() => null);
+  if (next === 'bio') await page.getByRole('button', { name: 'Ahora no' }).click();
   return code;
 }
 

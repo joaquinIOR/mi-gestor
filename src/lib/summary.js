@@ -14,7 +14,9 @@ export function lastMonths(movements, groups, y, m, count = 6) {
   return Array.from({ length: count }, (_, i) => {
     const d = new Date(y, m - (count - 1 - i), 1);
     const totals = sumTotals(monthItems(movements, groups, d.getFullYear(), d.getMonth()));
-    return { y: d.getFullYear(), m: d.getMonth(), label: MONTHS[d.getMonth()].slice(0, 3), name: MONTHS[d.getMonth()], ...totals };
+    // Los meses que aún no llegan son una proyección de lo que se repite.
+    const future = d > new Date(new Date().getFullYear(), new Date().getMonth(), 1);
+    return { y: d.getFullYear(), m: d.getMonth(), label: MONTHS[d.getMonth()].slice(0, 3), name: MONTHS[d.getMonth()], future, ...totals };
   });
 }
 
@@ -76,5 +78,5 @@ export function downloadCsv(text) {
   link.href = url;
   link.download = `mi-gestor-movimientos-${todayKey()}.csv`;
   link.click();
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  setTimeout(() => URL.revokeObjectURL(url), 60000);
 }

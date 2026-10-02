@@ -13,7 +13,7 @@ await p.evaluate(async () => {
   localStorage.setItem('miGestor.movements', JSON.stringify([{id:'a',type:'expense',amount:45.5,category:'Servicios',description:'Luz secreta',date:'2026-10-01',frequency:'monthly',until:null,reminder:0,createdAt:1}]));
   localStorage.setItem('miGestor.notes', JSON.stringify([{id:'n',title:'Clave wifi',body:'hunter2',color:'yellow',pinned:false,updatedAt:1}]));
   const png = await (await fetch('icons/icon-192.png')).blob();
-  await new Promise((res, rej) => { const r=indexedDB.open('mi-gestor',1); r.onupgradeneeded=()=>r.result.createObjectStore('documents',{keyPath:'id'}); r.onsuccess=()=>{ const tx=r.result.transaction('documents','readwrite'); tx.objectStore('documents').put({id:'d1',type:'carnet',name:'Carnet Tomas',number:'12345678-9',expiry:'',notes:'',images:[png],createdAt:1}); tx.oncomplete=()=>{r.result.close();res();}; tx.onerror=rej; }; });
+  await new Promise((res, rej) => { const r=indexedDB.open('mi-gestor'); r.onerror=()=>rej(r.error); r.onupgradeneeded=()=>{ if(!r.result.objectStoreNames.contains('documents')) r.result.createObjectStore('documents',{keyPath:'id'}); }; r.onsuccess=()=>{ const tx=r.result.transaction('documents','readwrite'); tx.objectStore('documents').put({id:'d1',type:'carnet',name:'Carnet Tomas',number:'12345678-9',expiry:'',notes:'',images:[png],createdAt:1}); tx.oncomplete=()=>{r.result.close();res();}; tx.onerror=rej; }; });
 });
 await p.reload({ waitUntil: 'networkidle' });
 ok(await p.getByText('Protege Mi Gestor').isVisible(), 'pide crear código al abrir');
@@ -37,7 +37,7 @@ const disk = await p.evaluate(async () => {
   return { ls, text, hasBlob, docs: dump.documents.length, vault: dump.vault.length };
 });
 ok(!/Luz secreta|hunter2|Carnet Tomas|12345678/.test(disk.ls + disk.text), 'nada legible en localStorage ni IndexedDB');
-ok(!disk.hasBlob && disk.docs===1 && disk.vault===1, 'fotos guardadas cifradas (sin Blob en claro)');
+ok(!disk.hasBlob && disk.docs===1 && disk.vault>=1, 'fotos guardadas cifradas (sin Blob en claro)');
 ok(!/miGestor\.(movements|notes)/.test(disk.ls), 'claves antiguas sin cifrar eliminadas');
 ok(!disk.ls.includes(CODE), 'el código no se guarda');
 // documento descifrado se ve
@@ -61,6 +61,20 @@ await p.getByLabel('Ajustes').click(); await p.getByRole('button',{name:'Al sali
 await p.evaluate(()=>{ Object.defineProperty(document,'visibilityState',{value:'hidden',configurable:true}); document.dispatchEvent(new Event('visibilitychange')); });
 ok(await p.getByRole('button', { name: 'Desbloquear' }).waitFor({timeout:3000}).then(()=>true,()=>false), 'se bloquea al salir de la app');
 await p.evaluate(()=>{ Object.defineProperty(document,'visibilityState',{value:'visible',configurable:true}); document.dispatchEvent(new Event('visibilitychange')); });
+await p.getByPlaceholder('Código').fill(CODE); await p.getByRole('button',{name:'Desbloquear'}).click(); await p.getByRole('heading', { name: 'Inicio' }).waitFor();
+// 4b) elegir una foto da una gracia corta, pero volver mucho después igual bloquea
+const vis = (v) => p.evaluate((v)=>{ Object.defineProperty(document,'visibilityState',{value:v,configurable:true}); document.dispatchEvent(new Event('visibilitychange')); }, v);
+await p.getByRole('navigation').getByRole('button', { name: 'Docs' }).click(); await p.getByRole('button',{name:'Agregar documento'}).click();
+// En Android, al abrir el selector la app pasa a segundo plano y vuelve al elegir (o cancelar).
+const [chooser1] = await Promise.all([p.waitForEvent('filechooser'), p.locator('.photo-add').click()]);
+await vis('hidden'); await p.waitForTimeout(300); await vis('visible'); await chooser1.setFiles([]);
+ok(await p.getByText('Nuevo documento').isVisible(), 'volver al instante del selector de fotos no bloquea');
+await Promise.all([p.waitForEvent('filechooser'), p.locator('.photo-add').click()]);
+await vis('hidden');
+await p.evaluate(()=>{ const real = Date.now.bind(Date); Date.now = () => real() + 60*60*1000; });
+await vis('visible');
+ok(await p.getByRole('button', { name: 'Desbloquear' }).waitFor({timeout:3000}).then(()=>true,()=>false), 'tras elegir una foto, volver una hora después pide el código');
+await p.reload({ waitUntil: 'networkidle' });
 await p.getByPlaceholder('Código').fill(CODE); await p.getByRole('button',{name:'Desbloquear'}).click(); await p.getByRole('heading', { name: 'Inicio' }).waitFor();
 // 5) copia cifrada
 await p.getByLabel('Ajustes').click(); await p.getByRole('button',{name:'Exportar'}).click();

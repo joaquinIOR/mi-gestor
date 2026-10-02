@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Pin, Plus, Search, StickyNote, Trash2 } from 'lucide-react';
 import Sheet from '../components/Sheet';
 import { uid } from '../lib/format';
-import { NOTE_COLORS } from '../lib/validate';
+import { NOTE_COLORS, NOTE_BODY_MAX } from '../lib/validate';
 
 export default function Notes({ notes, setNotes }) {
   const [query, setQuery] = useState('');
@@ -74,7 +74,7 @@ function NoteForm({ initial, onSave, onDelete }) {
   return (
     <form className="form" onSubmit={submit}>
       <input className="note-title-input" placeholder="Título" maxLength={60} value={title} onChange={(e) => setTitle(e.target.value)} />
-      <textarea rows={6} placeholder="Escribe tu nota…" value={body} onChange={(e) => setBody(e.target.value)} autoFocus={!initial.id} />
+      <textarea rows={6} placeholder="Escribe tu nota…" maxLength={NOTE_BODY_MAX} value={body} onChange={(e) => setBody(e.target.value)} autoFocus={!initial.id} />
       <div className="note-options">
         <div className="colors" role="radiogroup" aria-label="Color">
           {NOTE_COLORS.map((c) => (
@@ -89,7 +89,7 @@ function NoteForm({ initial, onSave, onDelete }) {
             />
           ))}
         </div>
-        <button type="button" className={`chip ${pinned ? 'on' : ''}`} onClick={() => setPinned((p) => !p)}>
+        <button type="button" className={`chip ${pinned ? 'on' : ''}`} aria-pressed={pinned} onClick={() => setPinned((p) => !p)}>
           <Pin size={14} /> Fijar
         </button>
       </div>
