@@ -86,12 +86,19 @@ export default function Root() {
   // quiet: se bloqueó porque se usó la app en otra ventana; ahí no se pide la huella sola (si no, las dos
   // ventanas se desbloquearían y bloquearían una a la otra).
   const [quietLock, setQuietLock] = useState(false);
+  const reloadAfterLock = useRef(false);
   const lock = useCallback((options) => {
     setQuietLock(options?.quiet === true);
     setSession(null);
     setQuick(null);
-    if (updateRef.current) window.location.reload();
+    if (updateRef.current) reloadAfterLock.current = true;
   }, []);
+  // La recarga va después de que la app se cerró (y de que se limpió el historial de paneles y pestañas).
+  useEffect(() => {
+    if (session || !reloadAfterLock.current) return;
+    reloadAfterLock.current = false;
+    setTimeout(() => window.location.reload(), 0);
+  }, [session]);
   const inviteHandled = useCallback(() => setInvite(null), []);
   const ready = useCallback((s) => {
     setHasVault(true);

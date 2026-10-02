@@ -41,6 +41,7 @@ export function sanitizeMovements(list) {
         reminder: Number.isInteger(m.reminder) && m.reminder >= 0 && m.reminder <= MAX_REMINDER_DAYS ? m.reminder : null,
         card: text(m.card, 40).trim() || null,
         ...(asList(m.paidDates).some(isDateKey) ? { paidDates: asList(m.paidDates).filter(isDateKey).slice(-24) } : {}),
+        ...(Number.isInteger(m.day) && m.day >= 1 && m.day <= 31 ? { day: m.day } : {}),
         createdAt: Number.isFinite(m.createdAt) ? m.createdAt : Date.now(),
       },
     ];

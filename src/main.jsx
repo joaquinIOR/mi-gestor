@@ -28,9 +28,16 @@ window.addEventListener('beforeinstallprompt', (e) => {
 if ('serviceWorker' in navigator && import.meta.env.PROD) {
   window.addEventListener('load', () => {
     let controlled = !!navigator.serviceWorker.controller;
-    navigator.serviceWorker.addEventListener('controllerchange', () => {
-      if (controlled) window.dispatchEvent(new Event('mg-update'));
+    navigator.serviceWorker.addEventListener('controllerchange', async () => {
+      const was = controlled;
       controlled = true;
+      if (!was) return;
+      // Solo si la versión nueva trae otro código (al pasar de un service worker antiguo puede ser la misma).
+      const html = await caches
+        .match(import.meta.env.BASE_URL)
+        .then((r) => r?.text())
+        .catch(() => '');
+      if (!html || !html.includes(new URL(import.meta.url).pathname)) window.dispatchEvent(new Event('mg-update'));
     });
     navigator.serviceWorker
       .register(`${import.meta.env.BASE_URL}sw.js`)

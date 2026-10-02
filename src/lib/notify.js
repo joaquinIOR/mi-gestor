@@ -1,5 +1,5 @@
 import { addDays, parseKey, todayKey } from './dates';
-import { formatMoney } from './format';
+import { formatMoney, uid } from './format';
 import { occurrences } from './recurrence';
 
 const SENT_KEY = 'miGestor.notified';
@@ -73,7 +73,7 @@ async function notifyNow(movements, currency, details, store) {
       const options = {
         body: details && !m.doc ? `${m.card || m.description || m.category} · ${formatMoney(m.amount, currency)}` : 'Abre Mi Gestor para ver el detalle.',
         icon: 'icons/icon-192.png',
-        tag: `${m.bill ? 'cuenta' : 'aviso'}-${m.occurrence}-${Object.keys(sent).length}`,
+        tag: `${m.bill ? 'cuenta' : m.doc ? 'documento' : 'aviso'}-${m.occurrence}-${uid()}`,
       };
       if (registration) await registration.showNotification(title, options);
       else new Notification(title, options);

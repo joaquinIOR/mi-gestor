@@ -1,11 +1,17 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Check, Copy, KeyRound } from 'lucide-react';
+import { holdAutoLock } from '../lib/autolock';
 import { copySecret } from '../lib/clipboard';
 
 // Muestra el código de recuperación una sola vez y pide confirmar que se guardó.
 export default function RecoveryCode({ code, onDone }) {
   const [copied, setCopied] = useState(false);
   const [saved, setSaved] = useState(false);
+  // Mientras se anota el código, la app no se bloquea sola (si no, el código nuevo no quedaría activo).
+  useEffect(() => {
+    holdAutoLock(true);
+    return () => holdAutoLock(false);
+  }, []);
 
   const copy = async () => {
     try {

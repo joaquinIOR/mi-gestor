@@ -14,3 +14,11 @@ export const graceUntil = () => allowedUntil;
 export const endBackgroundAllowance = () => {
   allowedUntil = 0;
 };
+
+// Mientras se muestra un código de recuperación nuevo (hay que anotarlo), la app no se bloquea sola:
+// si se bloqueara antes de «Continuar», ese código no quedaría activo. Como máximo 10 minutos.
+let heldSince = 0;
+export const holdAutoLock = (on) => {
+  heldSince = on ? Date.now() : 0;
+};
+export const autoLockHeld = () => heldSince > 0 && Date.now() - heldSince < 10 * 60 * 1000;

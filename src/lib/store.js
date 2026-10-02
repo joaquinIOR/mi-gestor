@@ -180,12 +180,12 @@ export async function hasEncryptedData() {
 // Borra todos los datos de la app en este dispositivo.
 export async function wipeAllData() {
   // Este teléfono deja de recibir avisos del grupo (el servidor borra la suscripción al ver que ya no existe).
-  try {
-    const reg = await navigator.serviceWorker?.getRegistration();
-    await (await reg?.pushManager?.getSubscription())?.unsubscribe();
-  } catch {
-    // sin avisos
-  }
+  // (sin esperar a la red: el borrado no se demora por esto)
+  navigator.serviceWorker
+    ?.getRegistration()
+    .then((reg) => reg?.pushManager?.getSubscription())
+    .then((sub) => sub?.unsubscribe())
+    .catch(() => {});
   await run(DOCS, 'readwrite', (s) => s.clear());
   await run(VAULT, 'readwrite', (s) => s.clear());
   Object.values(LEGACY_KEYS).forEach((k) => localStorage.removeItem(k));

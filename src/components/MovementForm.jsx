@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Bell, Copy, Plus, Trash2 } from 'lucide-react';
 import AmountHint from './AmountHint';
 import { categoryList } from '../lib/categories';
-import { addDays, formatShort, todayKey, toKey } from '../lib/dates';
+import { addDays, formatShort, parseKey, todayKey, toKey } from '../lib/dates';
 import { formatMoney, MAX_AMOUNT, parseAmount, uid } from '../lib/format';
 import { ALL_CARDS, CARD_GROUPS, OTHER_CARD } from '../lib/cards';
 import { notificationsSupported } from '../lib/notify';
@@ -40,6 +40,7 @@ const stored = (m) => ({
   reminder: m.reminder ?? null,
   card: m.card ?? null,
   ...(m.paidDates?.length ? { paidDates: m.paidDates } : {}),
+  ...(m.day ? { day: m.day } : {}),
   createdAt: m.createdAt,
 });
 
@@ -95,7 +96,7 @@ export default function MovementForm({ initial, categories, currency, pushEnable
     }
     const card = showCard ? (form.card === OTHER_CARD ? form.otherCard.trim() : form.card) || null : null;
     if (initial.cardPayment && !card) return setError('Elige la tarjeta que vas a pagar.');
-    if (installments !== '') {
+    if (installments !== '' && form.type === 'expense' && form.frequency === 'once' && !initial.id) {
       const n = Number(installments);
       if (!Number.isInteger(n) || n < 2 || n > 48) return setError('Las cuotas deben ser entre 2 y 48.');
       return onSave({
@@ -124,13 +125,26 @@ export default function MovementForm({ initial, categories, currency, pushEnable
       reminder,
       card,
       ...(initial.paidDates?.length ? { paidDates: initial.paidDates } : {}),
+      ...(initial.day && form.date === initial.date ? { day: initial.day } : {}),
       createdAt: initial.createdAt ?? Date.now(),
     };
     if (fromHere && scope === 'from') {
-      // Lo anterior queda como estaba; desde esta fecha sigue una serie nueva con los cambios.
-      const start = form.date !== initial.date ? form.date : initial.occurrence;
+      const before = stored(initial);
+      const same = ['type', 'amount', 'category', 'description', 'date', 'frequency', 'until', 'reminder', 'card'].every((k) => (movement[k] ?? null) === (before[k] ?? null));
+      // Sin cambios no hace falta partir la serie.
+      if (same) return onSave(movement);
+      // Lo anterior queda como estaba; desde esta fecha sigue una serie nueva con los cambios, en el mismo día del mes.
+      const keepDay = form.date === initial.date;
+      const start = keepDay ? initial.occurrence : form.date;
       const cut = start < initial.occurrence ? start : initial.occurrence;
-      return onSplit(endSeriesBefore(stored(initial), cut), { ...movement, id: uid(), date: start, createdAt: Date.now() });
+      const { day: _day, ...rest } = movement;
+      return onSplit(endSeriesBefore(before, cut), {
+        ...rest,
+        id: uid(),
+        date: start,
+        ...(keepDay ? { day: initial.day ?? parseKey(initial.date).getDate() } : {}),
+        createdAt: Date.now(),
+      });
     }
     onSave(movement);
   };

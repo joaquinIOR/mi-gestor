@@ -14,8 +14,7 @@ export default function Sheet({ title, onClose, children, guard = true }) {
 
   const requestClose = useCallback(() => {
     if (guard && dirty.current && !window.confirm(DISCARD)) return false;
-    onClose();
-    return true;
+    return onClose() !== false;
   }, [guard, onClose]);
 
   // «Atrás» cierra el panel (o lo deja abierto si la persona decide no descartar).
@@ -40,7 +39,8 @@ export default function Sheet({ title, onClose, children, guard = true }) {
     let node = backdrop.current;
     while (node?.parentElement && node.id !== 'root') {
       for (const sibling of node.parentElement.children) {
-        if (sibling !== node && !sibling.inert && sibling.tagName !== 'SCRIPT') {
+        // El aviso flotante («Deshacer») sigue tocable.
+        if (sibling !== node && !sibling.inert && sibling.tagName !== 'SCRIPT' && !sibling.classList.contains('toast')) {
           sibling.inert = true;
           inerted.push(sibling);
         }

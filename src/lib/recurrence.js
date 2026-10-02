@@ -50,8 +50,9 @@ export function occurrences(item, from, to) {
     const elapsed = Math.round((lo - start) / 86400000);
     for (let d = addDays(lo, (7 - (elapsed % 7)) % 7); d <= hi; d = addDays(d, 7)) out.push(toKey(d));
   } else if (item.frequency === 'monthly') {
-    // Si el mes no tiene ese día (p. ej. 31), se usa el último día del mes.
-    const day = start.getDate();
+    // Si el mes no tiene ese día (p. ej. 31), se usa el último día del mes. `day` guarda el día original
+    // cuando una serie sigue desde una repetición (por ejemplo, un sueldo del 30 que se cambió desde febrero).
+    const day = item.day ?? start.getDate();
     let y = lo.getFullYear();
     let m = lo.getMonth();
     for (;;) {
@@ -64,7 +65,7 @@ export function occurrences(item, from, to) {
   } else if (item.frequency === 'yearly') {
     // Cada año el mismo día (un 29 de febrero cae el 28 en los años que no son bisiestos).
     const mo = start.getMonth();
-    const day = start.getDate();
+    const day = item.day ?? start.getDate();
     for (let y = lo.getFullYear(); ; y += 1) {
       const d = new Date(y, mo, Math.min(day, daysInMonth(y, mo)));
       if (d > hi) break;

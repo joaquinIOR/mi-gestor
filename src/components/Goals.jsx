@@ -69,7 +69,7 @@ function GoalForm({ initial, currency, onSave, onCancel, onDelete }) {
       </label>
       <label className="field">
         <span>¿Para cuándo? (opcional)</span>
-        <input type="date" value={deadline} min={toKey(addDays(new Date(), 1))} onChange={(e) => setDeadline(e.target.value)} />
+        <input type="date" value={deadline} min={deadline && deadline === initial.deadline ? undefined : toKey(addDays(new Date(), 1))} onChange={(e) => setDeadline(e.target.value)} />
       </label>
       {error && <p className="error">{error}</p>}
       <div className="actions">
@@ -130,8 +130,13 @@ function GoalDetail({ goal, currency, onBack, onChange, onDelete }) {
   const monthly = monthlyNeeded(goal);
   const expired = goalExpired(goal);
   const removeEntry = (entry) => {
+    const rest = goal.entries.filter((e) => e.id !== entry.id);
+    if (rest.reduce((sum, e) => sum + e.amount, 0) < 0) {
+      window.alert('Primero borra el retiro que usa este aporte.');
+      return;
+    }
     const text = `${entry.amount < 0 ? 'retiro' : 'aporte'} de ${formatMoney(Math.abs(entry.amount), currency)} del ${formatShort(entry.date)}`;
-    if (window.confirm(`¿Borrar el ${text}?`)) onChange({ ...goal, entries: goal.entries.filter((e) => e.id !== entry.id) });
+    if (window.confirm(`¿Borrar el ${text}?`)) onChange({ ...goal, entries: rest });
   };
 
   if (editing) {

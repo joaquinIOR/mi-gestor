@@ -5,16 +5,18 @@ import AmountHint from '../components/AmountHint';
 import QrCode from '../components/QrCode';
 import Sheet from '../components/Sheet';
 import { categoryEmoji, categoryList } from '../lib/categories';
-import { formatShort, MONTHS, todayKey } from '../lib/dates';
+import { formatShort, MONTHS, todayKey, toKey } from '../lib/dates';
 import { formatMoney, parseAmount, uid } from '../lib/format';
 import {
   activity,
   balances,
   billParticipants,
   billPaymentId,
+  billDueDate,
   billsOf,
   billStatus,
   createGroup,
+  balanceTolerance,
   EPSILON,
   inviteLink,
   joinGroup,
@@ -518,15 +520,26 @@ function ProfileForm({ group, onSave }) {
       className="form"
       onSubmit={(e) => {
         e.preventDefault();
-        if (name.trim()) onSave({ ...me, name: name.trim().slice(0, 30), color });
+        if (me && name.trim()) onSave({ ...me, name: name.trim().slice(0, 30), color });
       }}
     >
       <ProfileFields name={name} setName={setName} color={color} setColor={setColor} />
-      <button type="submit" className="btn primary">
+      {!me && <p className="hint">Conectando con el grupo… Intenta en unos segundos.</p>}
+      <button type="submit" className="btn primary" disabled={!me}>
         Guardar perfil
       </button>
     </form>
   );
+}
+
+// Primer mes de una cuenta nueva: si este mes ya pasó el día de vencimiento, empieza el próximo
+// (así no queda «vencida» una cuenta que probablemente ya se pagó por fuera).
+function firstPeriod(day) {
+  const now = todayKey();
+  const y = Number(now.slice(0, 4));
+  const m = Number(now.slice(5, 7)) - 1;
+  const due = billDueDate({ date: `2000-01-${String(day).padStart(2, '0')}` }, y, m);
+  return due < now ? toKey(new Date(y, m + 1, 1)).slice(0, 7) : now.slice(0, 7);
 }
 
 function BillForm({ group, initial, categories, currency, onSave, onDelete }) {
@@ -562,7 +575,7 @@ function BillForm({ group, initial, categories, currency, onSave, onDelete }) {
       reminder: reminder === 'none' ? null : Number(reminder),
       participants: everyone ? people.map((p) => p.id) : participants,
       everyone,
-      since: initial.since ?? todayKey().slice(0, 7),
+      since: initial.since ?? firstPeriod(d),
       createdBy: initial.createdBy ?? group.me,
     });
   };
@@ -883,8 +896,13 @@ export default function Group({ groups, syncInfo, invite, currency, categories, 
   const suggestions = settlements(group);
   const items = activity(group);
   const info = syncInfo[group.id];
+  const tol = balanceTolerance(group);
   const mine = net[group.me] ?? 0;
+  const shown = (v) => (tol === EPSILON ? v : Math.round(v));
+  // A este teléfono lo quitaron del grupo: puede ver lo anterior, pero no agregar cosas nuevas.
+  const removed = group.entries[group.me]?.deleted === true;
   const save = (entry) => {
+    if (removed) return setSheet(null);
     onSaveEntry(group.id, entry);
     // Al pasar la lista de compras a un gasto, se quitan de la lista los productos marcados (si siguen ahí).
     for (const itemId of sheet?.initial?.fromItems ?? []) {
@@ -899,12 +917,12 @@ export default function Group({ groups, syncInfo, invite, currency, categories, 
     }
   };
   const leave = () => {
-    const owed = mine > EPSILON ? ` Aún te deben ${formatMoney(mine, currency)}.` : mine < -EPSILON ? ` Aún debes ${formatMoney(-mine, currency)}.` : '';
+    const owed = mine > tol ? ` Aún te deben ${formatMoney(shown(mine), currency)}.` : mine < -tol ? ` Aún debes ${formatMoney(shown(-mine), currency)}.` : '';
     if (window.confirm(`¿Salir de «${group.name}»?${owed} Se borrará de este teléfono y dejarás de aparecer en el grupo; las demás personas seguirán viendo los gastos anteriores.`)) {
       onLeave(group.id);
     }
   };
-  const saveQuiet = (entry) => onSaveEntry(group.id, entry);
+  const saveQuiet = (entry) => !removed && onSaveEntry(group.id, entry);
   const remove = (entry) => save({ ...entry, deleted: true });
 
   return (
@@ -937,6 +955,10 @@ export default function Group({ groups, syncInfo, invite, currency, categories, 
               <span key={p.id} className="member">
                 <i className="member-dot" style={{ background: p.color }} /> {p.name} (tú)
               </span>
+            ) : removed ? (
+              <span key={p.id} className="member">
+                <i className="member-dot" style={{ background: p.color }} /> {p.name}
+              </span>
             ) : (
               <button type="button" key={p.id} className="member" onClick={() => removeMember(p)} aria-label={`${p.name}: quitar del grupo`}>
                 <i className="member-dot" style={{ background: p.color }} /> {p.name}
@@ -944,14 +966,26 @@ export default function Group({ groups, syncInfo, invite, currency, categories, 
             )
           )}
         </div>
-        <div className="actions">
-          <button type="button" className="btn grow" onClick={() => setSheet({ type: 'invite' })}>
-            <UserPlus size={18} /> Invitar
-          </button>
-          <button type="button" className="btn primary grow" onClick={() => setSheet({ type: 'expense', initial: {} })}>
-            <Plus size={18} /> Gasto en común
-          </button>
-        </div>
+        {removed ? (
+          <div className="notice warn">
+            <div className="notice-text">
+              <b>Te quitaron de este grupo</b>
+              <p>Tus gastos y pagos anteriores se mantienen, pero ya no puedes agregar nuevos. Puedes salir del grupo o pedir una invitación nueva.</p>
+            </div>
+            <button type="button" className="btn small danger" onClick={leave}>
+              <LogOut size={16} /> Salir
+            </button>
+          </div>
+        ) : (
+          <div className="actions">
+            <button type="button" className="btn grow" onClick={() => setSheet({ type: 'invite' })}>
+              <UserPlus size={18} /> Invitar
+            </button>
+            <button type="button" className="btn primary grow" onClick={() => setSheet({ type: 'expense', initial: {} })}>
+              <Plus size={18} /> Gasto en común
+            </button>
+          </div>
+        )}
       </section>
 
       <div className="segmented" role="tablist" aria-label="Secciones del grupo">
@@ -979,12 +1013,12 @@ export default function Group({ groups, syncInfo, invite, currency, categories, 
         <h3 className="card-title">
           <HandCoins size={18} /> Quién debe a quién
         </h3>
-        {people.length < 2 ? (
+        {people.length < 2 && !suggestions.length ? (
           <p className="empty">Invita a tu familia para empezar a compartir gastos.</p>
         ) : (
           <>
-            <p className={`group-balance ${mine < -EPSILON ? 'expense' : mine > EPSILON ? 'income' : ''}`}>
-              {mine > EPSILON ? `Te deben ${formatMoney(mine, currency)}` : mine < -EPSILON ? `Debes ${formatMoney(-mine, currency)}` : 'Están a mano 🎉'}
+            <p className={`group-balance ${mine < -tol ? 'expense' : mine > tol ? 'income' : ''}`}>
+              {mine > tol ? `Te deben ${formatMoney(shown(mine), currency)}` : mine < -tol ? `Debes ${formatMoney(shown(-mine), currency)}` : 'Están a mano 🎉'}
             </p>
             {suggestions.map((s) => (
               <div key={`${s.from}-${s.to}`} className="settle-row">

@@ -161,7 +161,8 @@ export function joinGroup(invite, me) {
 }
 
 export function rejoinGroup(invite, existing) {
-  return { ...invite, me: existing.id, epoch: uid(), cursor: null, entries: {}, outbox: [], lastSync: null, error: null };
+  // Se parte con el propio perfil (la primera sincronización trae el resto).
+  return { ...invite, me: existing.id, epoch: uid(), cursor: null, entries: { [existing.id]: { ...existing, _ts: null } }, outbox: [], lastSync: null, error: null };
 }
 
 // Integrantes que ya están en el servidor (para «¿Ya eras parte? Toca tu nombre»).
@@ -318,8 +319,16 @@ export function applySync(group, result) {
     const local = pending.get(entry.id);
     if (local && localWins({ ...local, _base: local._base ?? entries[entry.id]?._ts ?? null }, entry)) continue;
     const before = entries[entry.id];
-    // Un borrado es definitivo: una versión vieja que llegue después no lo revive.
-    if (before?.deleted && before._ts && !entry.deleted) continue;
+    // Un borrado es definitivo: si llega una versión sin borrar (alguien la cambió justo a la vez), se vuelve
+    // a enviar el borrado para que todos los teléfonos terminen igual.
+    if (before?.deleted && before._ts && !entry.deleted) {
+      const { _ts, ...redo } = before;
+      const again = { ...redo, updatedAt: Math.max(before.updatedAt, entry.updatedAt) + 1, updatedBy: group.me, _base: entry._ts };
+      outbox.push(again);
+      pending.set(entry.id, again);
+      entries[entry.id] = { ...before, _ts: entry._ts };
+      continue;
+    }
     if (!before || before._ts !== entry._ts) {
       if (!before && entry.createdBy !== group.me && entry.id !== group.me) news.push(entry);
       // Cambios o borrados de otra persona en gastos y pagos (cambian los saldos): también se avisan.
@@ -338,6 +347,8 @@ export function applySync(group, result) {
 
 // Guarda un cambio local: se ve al instante y queda pendiente de enviar.
 export function upsertLocal(group, entry) {
+  // Nunca se encola algo sin identificador ni tipo (rompería la sincronización del grupo).
+  if (!entry || typeof entry.id !== 'string' || !entry.kind) return group;
   const { _ts, _base, change: _change, ...clean } = entry;
   const next = { ...clean, updatedAt: Math.max(Date.now(), (group.entries[clean.id]?.updatedAt ?? 0) + 1), updatedBy: group.me };
   const base = group.outbox.find((e) => e.id === next.id)?._base ?? group.entries[next.id]?._ts ?? null;
@@ -381,12 +392,22 @@ export function splitShares(amount, participants, paidBy) {
 const cents = (v) => Math.round(v * 100) / 100;
 export const EPSILON = 0.005;
 
+// En grupos en pesos (montos enteros) se tolera menos de $1: los gastos anotados con versiones anteriores
+// se dividían con decimales y así un grupo que ya estaba a mano sigue a mano.
+export function balanceTolerance(group) {
+  const integer = Object.values(group.entries).every((e) => (e.kind !== 'expense' && e.kind !== 'settle') || e.deleted || Number.isInteger(e.amount));
+  return integer ? 0.5 : EPSILON;
+}
+
 // Saldo de cada persona: positivo = le deben, negativo = debe.
 export function balances(group) {
   const net = Object.fromEntries(members(group).map((m) => [m.id, 0]));
   for (const e of activity(group)) {
     if (e.kind === 'expense') {
-      const shares = splitShares(e.amount, e.participants, e.paidBy);
+      // Los gastos de versiones anteriores (sin updatedBy) mantienen su división de entonces.
+      const shares = e.updatedBy
+        ? splitShares(e.amount, e.participants, e.paidBy)
+        : Object.fromEntries([...new Set(e.participants)].map((p) => [p, e.amount / e.participants.length]));
       net[e.paidBy] = (net[e.paidBy] ?? 0) + e.amount;
       for (const [p, share] of Object.entries(shares)) net[p] = (net[p] ?? 0) - share;
     } else {
@@ -401,18 +422,20 @@ export function balances(group) {
 // Propone el menor número de pagos para quedar a mano.
 export function settlements(group) {
   const net = balances(group);
-  const debtors = Object.entries(net).filter(([, v]) => v < -EPSILON).map(([id, v]) => ({ id, v: -v })).sort((a, b) => b.v - a.v);
-  const creditors = Object.entries(net).filter(([, v]) => v > EPSILON).map(([id, v]) => ({ id, v })).sort((a, b) => b.v - a.v);
+  const tol = balanceTolerance(group);
+  const round = tol === EPSILON ? cents : Math.round;
+  const debtors = Object.entries(net).filter(([, v]) => v < -tol).map(([id, v]) => ({ id, v: -v })).sort((a, b) => b.v - a.v);
+  const creditors = Object.entries(net).filter(([, v]) => v > tol).map(([id, v]) => ({ id, v })).sort((a, b) => b.v - a.v);
   const out = [];
   let i = 0;
   let j = 0;
   while (i < debtors.length && j < creditors.length) {
-    const amount = cents(Math.min(debtors[i].v, creditors[j].v));
-    if (amount > EPSILON) out.push({ from: debtors[i].id, to: creditors[j].id, amount });
+    const amount = Math.min(debtors[i].v, creditors[j].v);
+    if (round(amount) > 0) out.push({ from: debtors[i].id, to: creditors[j].id, amount: round(amount) });
     debtors[i].v = cents(debtors[i].v - amount);
     creditors[j].v = cents(creditors[j].v - amount);
-    if (debtors[i].v < EPSILON) i += 1;
-    if (creditors[j].v < EPSILON) j += 1;
+    if (debtors[i].v < tol) i += 1;
+    if (creditors[j].v < tol) j += 1;
   }
   return out;
 }
@@ -477,6 +500,14 @@ export function billStatus(group, bill, today) {
     .filter((e) => e.kind === 'expense' && !e.deleted && e.billId === bill.id)
     .reduce((min, e) => (!min || e.period < min ? e.period : min), null);
   const since = bill.since ?? earliestPaid ?? current;
+  // La cuenta empieza el próximo mes: se muestra ese primer vencimiento.
+  if (current < since) {
+    const sy = Number(since.slice(0, 4));
+    const sm = Number(since.slice(5, 7)) - 1;
+    const due = billDueDate(bill, sy, sm);
+    const paid = billPayment(group, bill.id, since);
+    return { period: since, due, paid, late: false, payments: billPayments(group, bill.id, since).length, next: { period: since, due, paid, canPay: false } };
+  }
   const prev = periodOf(y, m - 1);
   const prevDue = billDueDate(bill, y, m - 1);
   if (prev >= since && prevDue < today && !billPayment(group, bill.id, prev)) {
@@ -533,7 +564,8 @@ export function billReminders(groups) {
         reminder: b.reminder,
         bill: group.name,
         groupId: group.id,
-        isPaid: (occurrence) => !!billPayment(group, b.id, occurrence.slice(0, 7)),
+        // Los meses antes de que existiera la cuenta no avisan.
+        isPaid: (occurrence) => occurrence.slice(0, 7) < (b.since ?? '0000-00') || !!billPayment(group, b.id, occurrence.slice(0, 7)),
       }))
   );
 }

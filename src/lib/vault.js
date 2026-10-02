@@ -168,7 +168,15 @@ export function disableBiometric() {
 
 export function getLockout() {
   try {
-    return JSON.parse(localStorage.getItem(LOCKOUT_KEY)) ?? { failures: 0, until: 0 };
+    const lockout = JSON.parse(localStorage.getItem(LOCKOUT_KEY)) ?? { failures: 0, until: 0 };
+    // Si el reloj del teléfono se atrasó, la espera vuelve a contar desde ahora (nunca más que el máximo).
+    const now = Date.now();
+    if (lockout.at && now < lockout.at) {
+      const fixed = { ...lockout, at: now, until: now + Math.min(lockout.until - lockout.at, MAX_WAIT_MS) };
+      localStorage.setItem(LOCKOUT_KEY, JSON.stringify(fixed));
+      return fixed;
+    }
+    return lockout;
   } catch {
     return { failures: 0, until: 0 };
   }
@@ -182,11 +190,9 @@ export function registerFailure() {
   return next;
 }
 
-// Segundos de espera. Nunca más que la espera máxima (aunque el reloj del teléfono se atrase), y si el
-// reloj se movió hacia atrás, la espera vuelve a contar desde el principio en vez de durar días.
+// Segundos de espera: nunca más que la espera máxima, aunque el reloj del teléfono cambie (ver getLockout).
 export function lockoutWait(lockout, now = Date.now()) {
-  const left = lockout.at && now < lockout.at ? lockout.until - lockout.at : lockout.until - now;
-  return Math.max(0, Math.ceil(Math.min(left, MAX_WAIT_MS) / 1000));
+  return Math.max(0, Math.ceil(Math.min(lockout.until - now, MAX_WAIT_MS) / 1000));
 }
 
 export const resetFailures = () => localStorage.removeItem(LOCKOUT_KEY);

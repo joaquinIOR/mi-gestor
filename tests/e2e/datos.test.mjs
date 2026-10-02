@@ -46,7 +46,7 @@ await p.getByPlaceholder(/Contraseña de la copia/).fill('copia-123456');
 await p.getByPlaceholder('Repite la contraseña').fill('copia-123456');
 const [dl] = await Promise.all([p.waitForEvent('download'), p.getByRole('button', { name: 'Descargar copia cifrada' }).click()]);
 await dl.saveAs(`${ARTIFACTS}/datos-copia.json`);
-await p.getByRole('button', { name: 'Sí, la guardé' }).click();
+await p.getByRole('button', { name: 'Listo, la guardé' }).click();
 
 // Borrar todo: Documentos también queda vacío (sin mostrar fotos viejas).
 await p.getByRole('button', { name: 'Borrar todos los datos' }).click();

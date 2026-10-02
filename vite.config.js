@@ -35,7 +35,8 @@ const serviceWorker = {
   enforce: 'post',
   generateBundle(_, bundle) {
     const files = Object.keys(bundle).filter((f) => f.startsWith('assets/'))
-    const icons = fs.readdirSync('public/icons').map((f) => `icons/${f}`)
+    const iconNames = fs.readdirSync('public/icons').sort()
+    const icons = iconNames.map((f) => `icons/${f}`)
     const precache = ['./', 'manifest.webmanifest', ...icons, ...files]
     const template = fs.readFileSync('src/service-worker.js', 'utf8')
     const hash = crypto.createHash('sha256').update(template)
@@ -44,6 +45,7 @@ const serviceWorker = {
       hash.update(name).update(item.type === 'chunk' ? item.code : item.source)
     }
     hash.update(fs.readFileSync('public/manifest.webmanifest'))
+    for (const f of iconNames) hash.update(f).update(fs.readFileSync(`public/icons/${f}`))
     const source = template
       .replace('__VERSION__', hash.digest('hex').slice(0, 12))
       .replace('[/* __PRECACHE__ */]', JSON.stringify(precache))

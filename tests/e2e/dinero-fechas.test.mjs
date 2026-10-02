@@ -64,6 +64,26 @@ ok((await rentIn('Septiembre')) === '−$300.000' && (await rentIn('Julio')) ===
 await p.getByRole('button', { name: 'Hoy' }).click();
 ok((await p.locator('.month-switcher span').textContent()).startsWith('Octubre'), 'el botón «Hoy» vuelve al mes actual');
 
+// Un sueldo del día 30 cambiado «desde» febrero sigue cayendo el 30 (no el 28) en los meses siguientes.
+await nav('Inicio');
+await p.getByRole('button', { name: 'Ingreso' }).first().click();
+await dlg().getByPlaceholder('0').fill('900.000');
+await dlg().getByRole('button', { name: /Sueldo/ }).click();
+await dlg().getByPlaceholder(/Sueldo de octubre/).fill('Sueldo empresa');
+await dlg().locator('input[type=date]').first().fill('2026-01-30');
+await dlg().getByRole('button', { name: 'Mensual', exact: true }).click();
+await dlg().getByRole('button', { name: 'Guardar' }).click();
+await nav('Historial');
+while (!(await p.locator('.month-switcher span').textContent()).startsWith('Febrero')) await p.getByLabel('Mes anterior').click();
+await p.locator('.row', { hasText: 'Sueldo empresa' }).click();
+await dlg().getByPlaceholder('0').fill('950.000');
+await dlg().getByRole('button', { name: 'Guardar' }).click();
+await p.getByLabel('Mes siguiente').click();
+const marchDay = await p.locator('section.card', { has: p.locator('.row', { hasText: 'Sueldo empresa' }) }).locator('.day-title').textContent();
+ok(/30 de marzo/.test(marchDay), `marzo: el sueldo sigue el día 30 (${marchDay})`);
+ok(/950\.000/.test(await p.locator('.row', { hasText: 'Sueldo empresa' }).textContent()), 'con el monto nuevo');
+await p.getByRole('button', { name: 'Hoy' }).click();
+
 // Borrar «desde aquí» deja de repetir sin borrar lo pasado.
 await p.getByLabel('Mes siguiente').click();
 await p.locator('.row', { hasText: 'Arriendo' }).click();
@@ -124,6 +144,16 @@ await dlg().getByRole('button', { name: 'Duplicar' }).click();
 ok((await dlg().getAttribute('aria-label')) === 'Nuevo movimiento' && (await dlg().getByPlaceholder(/Supermercado/).inputValue()) === 'Almuerzo', '«Duplicar» abre uno nuevo con los mismos datos');
 await dlg().getByRole('button', { name: 'Guardar' }).click();
 ok((await p.locator('.row', { hasText: 'Almuerzo' }).count()) >= 3, 'el duplicado se guarda');
+
+// Borrar se puede deshacer, incluso si enseguida se abre otro formulario.
+const lunches = await p.locator('.row', { hasText: 'Almuerzo' }).count();
+await p.locator('.row', { hasText: 'Almuerzo' }).first().click();
+await dlg().getByRole('button', { name: 'Eliminar' }).click();
+ok((await p.locator('.row', { hasText: 'Almuerzo' }).count()) === lunches - 1, 'eliminar quita el movimiento');
+await p.getByRole('button', { name: 'Nuevo gasto o ingreso' }).click();
+await p.locator('.toast').getByRole('button', { name: 'Deshacer' }).click();
+await p.getByLabel('Cerrar').click();
+ok((await p.locator('.row', { hasText: 'Almuerzo' }).count()) === lunches, '«Deshacer» lo devuelve (también con un formulario abierto)');
 
 ok(errs.length === 0, 'sin errores ' + JSON.stringify(errs));
 await b.close();

@@ -363,7 +363,10 @@ function ExportForm({ onExport, onSaved, onDone }) {
     setError('');
     try {
       await onExport(password);
+      // La copia ya cuenta como hecha; el paso siguiente solo recuerda guardarla fuera del teléfono.
+      onSaved();
       setDownloaded(true);
+      allowBackgroundBriefly();
     } catch (err) {
       setError(err?.message || 'No se pudo crear la copia.');
     }
@@ -381,18 +384,15 @@ function ExportForm({ onExport, onSaved, onDone }) {
     return (
       <div className="subform">
         <p className="hint">
-          Revisa que el archivo <b>mi-gestor-….json</b> se haya descargado y guárdalo <b>fuera del teléfono</b> (Drive, iCloud o envíatelo por
+          Revisa que el archivo <b>mi-gestor-….json</b> se haya descargado y guárdalo fuera del teléfono (Drive, iCloud o envíatelo por
           correo). Guarda también la contraseña: sin ella no se puede abrir.
         </p>
         <button
           type="button"
           className="btn primary"
-          onClick={() => {
-            onSaved();
-            onDone('Copia de seguridad guardada.');
-          }}
+          onClick={() => onDone('Copia de seguridad guardada.')}
         >
-          Sí, la guardé
+          Listo, la guardé
         </button>
         <button type="button" className="btn ghost" onClick={download} disabled={busy}>
           {busy ? 'Cifrando…' : 'No se descargó: intentar de nuevo'}

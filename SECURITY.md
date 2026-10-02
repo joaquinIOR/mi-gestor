@@ -67,7 +67,7 @@ Son opcionales y se activan teléfono por teléfono (Ajustes). Usan Web Push del
 
 ### Copia de seguridad
 
-La copia se cifra con una contraseña propia (PBKDF2 + AES-GCM). Dentro van, cifrados, tus datos, documentos, metas, la fecha de la copia y tus preferencias de apariencia; nunca los datos de los avisos ni del bloqueo. Solo cuenta como hecha cuando confirmas que el archivo quedó guardado, y al restaurar se muestra qué trae y de qué fecha es antes de reemplazar nada. La restauración se guarda en una sola operación: si falla (por ejemplo, por falta de espacio), no cambia nada.
+La copia se cifra con una contraseña propia (PBKDF2 + AES-GCM). Dentro van, cifrados, tus datos, documentos, metas, la fecha de la copia y tus preferencias de apariencia; nunca los datos de los avisos ni del bloqueo. Después de descargarla, la app recuerda guardarla fuera del teléfono (Drive, iCloud, correo), y al restaurar se muestra qué trae y de qué fecha es antes de reemplazar nada. La restauración se guarda en una sola operación: si falla (por ejemplo, por falta de espacio), no cambia nada.
 
 ### Exportar a Excel
 

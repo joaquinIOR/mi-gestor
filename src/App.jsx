@@ -4,8 +4,8 @@ import BudgetAlert from './components/BudgetAlert';
 import Goals from './components/Goals';
 import MovementForm from './components/MovementForm';
 import Sheet from './components/Sheet';
-import { backgroundAllowed, endBackgroundAllowance, graceUntil } from './lib/autolock';
-import { useBackClose } from './lib/back';
+import { autoLockHeld, backgroundAllowed, endBackgroundAllowance, graceUntil } from './lib/autolock';
+import { reloadApp, useBackClose } from './lib/back';
 import { exportBackup } from './lib/backup';
 import { budgetAlert, monthSpent } from './lib/budget';
 import { categoryList } from './lib/categories';
@@ -76,7 +76,7 @@ export default function App({ session, settings, setSettings, quick, invite, onI
   }, [tab]);
 
   // «Atrás» desde otra pestaña vuelve a Inicio (y desde Inicio sale de la app, como siempre).
-  useBackClose(() => setTab('home'), tab !== 'home');
+  useBackClose(() => setTab('home'), tab !== 'home', { base: true });
 
   // Vencimientos de documentos (carnet, licencia…): se avisan 30 días antes, como un recordatorio más.
   const [docMeta, setDocMeta] = useState([]);
@@ -300,7 +300,7 @@ export default function App({ session, settings, setSettings, quick, invite, onI
     if (!settings.pushEnabled || !settings.pushEndpoint || !groups.length) return;
     const timer = setTimeout(() => {
       const times = reminderTimes([...withPaid(movements), ...billReminders(groups), ...docReminders]);
-      const key = JSON.stringify(times);
+      const key = JSON.stringify([settings.pushEndpoint, groups[0].server.url, times]);
       if (key === scheduleKey.current) return;
       syncSchedule(groups[0].server, settings.pushEndpoint, times)
         .then(() => {
@@ -328,13 +328,14 @@ export default function App({ session, settings, setSettings, quick, invite, onI
       if (!window.confirm(`No hay conexión con el grupo.${lost} las demás personas te seguirán viendo como integrante. ¿Salir igual?`)) return;
     }
     const rest = groupsRef.current.filter((g) => g.id !== groupId);
-    setGroups((gs) => gs.filter((g) => g.id !== groupId));
-    // Avisos: este teléfono deja de recibir los de ese grupo.
+    // Avisos: este teléfono deja de recibir los de ese grupo (y se vuelven a enviar sus recordatorios a los demás).
     if (settings.pushEnabled && settings.pushEndpoint) {
       await rpc(group.server, 'mg_push_unregister', { p_endpoint: settings.pushEndpoint }).catch(() => {});
-      if (rest.length) registerGroups(rest, settings.deviceTag).catch(() => {});
-      else turnOffPush();
+      if (rest.length) await registerGroups(rest, settings.deviceTag).catch(() => {});
+      else await turnOffPush();
+      scheduleKey.current = '';
     }
+    setGroups((gs) => gs.filter((g) => g.id !== groupId));
   };
 
   // Comprueba los recordatorios al abrir la app y cada vez que vuelve a primer plano.
@@ -363,7 +364,7 @@ export default function App({ session, settings, setSettings, quick, invite, onI
         hiddenAt = Date.now();
         // Si se está eligiendo una foto o un archivo, el tiempo fuera cuenta solo después de la gracia.
         graceEnd = backgroundAllowed() ? graceUntil() : 0;
-        if (limit === 0 && !graceEnd) onLock();
+        if (limit === 0 && !graceEnd && !autoLockHeld()) onLock();
         return;
       }
       const now = Date.now();
@@ -371,11 +372,11 @@ export default function App({ session, settings, setSettings, quick, invite, onI
       endBackgroundAllowance();
       hiddenAt = null;
       graceEnd = 0;
-      if (awaySince !== null && now > awaySince && now - awaySince >= limit) onLock();
+      if (awaySince !== null && now > awaySince && now - awaySince >= limit && !autoLockHeld()) onLock();
       else touch();
     };
     const timer = setInterval(() => {
-      if (Date.now() - lastActivity >= Math.max(limit, MIN_IDLE_MS) && !backgroundAllowed()) onLock();
+      if (Date.now() - lastActivity >= Math.max(limit, MIN_IDLE_MS) && !backgroundAllowed() && !autoLockHeld()) onLock();
     }, 10000);
     const events = ['pointerdown', 'keydown', 'scroll', 'touchstart'];
     events.forEach((e) => window.addEventListener(e, touch, { passive: true }));
@@ -457,8 +458,13 @@ export default function App({ session, settings, setSettings, quick, invite, onI
   const closeEditor = useCallback(() => setEditing(null), []);
   const closeGoals = useCallback(() => setGoalsOpen(false), []);
   const closeSettings = useCallback(() => {
+    // Un código de recuperación nuevo en pantalla todavía no está activo: se pregunta antes de cerrar.
+    if (autoLockHeld() && !window.confirm('Tu código de recuperación nuevo aún no está guardado: si cierras ahora, seguirá sirviendo el anterior. ¿Cerrar igual?')) {
+      return false;
+    }
     setSettingsOpen(false);
     setRecoveryReady(hasRecovery());
+    return true;
   }, []);
   const openSettings = (panel = null) => {
     setSettingsPanel(panel);
@@ -588,7 +594,7 @@ export default function App({ session, settings, setSettings, quick, invite, onI
             <b>Hay una versión nueva de Mi Gestor</b>
             <p>Tus datos ya están guardados. Al actualizar te pedirá el código.</p>
           </div>
-          <button type="button" className="btn small primary" onClick={() => window.location.reload()}>
+          <button type="button" className="btn small primary" onClick={reloadApp}>
             Actualizar
           </button>
         </div>

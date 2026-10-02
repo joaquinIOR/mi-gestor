@@ -260,7 +260,10 @@ export function LockScreen({ wipeOnFailures, quickType, invited, autoBiometric =
   };
 
   useEffect(() => {
-    const timer = setInterval(() => setNow(Date.now()), 1000);
+    const timer = setInterval(() => {
+      setNow(Date.now());
+      setLockout(getLockout());
+    }, 1000);
     return () => clearInterval(timer);
   }, []);
 
@@ -318,8 +321,8 @@ export function LockScreen({ wipeOnFailures, quickType, invited, autoBiometric =
       if (!(err instanceof WrongCodeError)) return setError('No se pudieron abrir los datos.');
       const next = registerFailure();
       if (wipeOnFailures && next.failures >= WIPE_AFTER_FAILURES) {
-        await wipeAllData();
         removeVault();
+        await wipeAllData();
         resetFailures();
         onWiped();
         return;
