@@ -2,6 +2,7 @@
 // Cada entrada se cifra en el teléfono con la clave del grupo (AES-GCM 256) antes de enviarse a Supabase.
 // El servidor solo ve: un identificador de grupo al azar, un identificador de entrada y datos ilegibles.
 import { fromBase64, randomBytes, toBase64 } from './crypto';
+import { toKey } from './dates';
 import { isDateKey } from './validate';
 import { uid } from './format';
 
@@ -36,7 +37,7 @@ export function normalizeServer(url, key) {
   return { url: clean, key: cleanKey };
 }
 
-async function rpc(server, fn, body) {
+export async function rpc(server, fn, body) {
   const headers = { apikey: server.key, 'Content-Type': 'application/json' };
   if (server.key.startsWith('eyJ')) headers.Authorization = `Bearer ${server.key}`;
   let res;
@@ -51,7 +52,9 @@ async function rpc(server, fn, body) {
     if (res.status === 401 || res.status === 403) throw new SyncError('La clave del servidor no es válida.', res.status);
     throw new SyncError('El servidor respondió con un error.', res.status);
   }
-  return res.json();
+  // Las funciones que no devuelven nada responden vacío (204).
+  const text = await res.text();
+  return text ? JSON.parse(text) : null;
 }
 
 export async function testServer(server) {
@@ -151,8 +154,29 @@ export function sanitizeSharedEntry(e) {
     if (!name) return null;
     return { ...base, kind: 'member', name, color: MEMBER_COLORS.includes(e.color) ? e.color : MEMBER_COLORS[0] };
   }
+  if (e.kind === 'item') {
+    const text = str(e.text, 60).trim();
+    if (!text) return null;
+    return { ...base, kind: 'item', text, checked: e.checked === true, checkedBy: isId(e.checkedBy) ? e.checkedBy : null, createdBy: isId(e.createdBy) ? e.createdBy : null };
+  }
   const amount = Number(e.amount);
   if (!(amount > 0 && amount < 1e12) || !isDateKey(e.date)) return null;
+  if (e.kind === 'bill') {
+    const name = str(e.name, 40).trim();
+    const participants = Array.isArray(e.participants) ? [...new Set(e.participants.filter(isId))].slice(0, 20) : [];
+    if (!name || !participants.length) return null;
+    return {
+      ...base,
+      kind: 'bill',
+      name,
+      amount: Math.round(amount * 100) / 100,
+      category: str(e.category, 24).trim() || 'Servicios',
+      date: e.date,
+      reminder: Number.isInteger(e.reminder) && e.reminder >= 0 && e.reminder <= 60 ? e.reminder : null,
+      participants,
+      createdBy: isId(e.createdBy) ? e.createdBy : null,
+    };
+  }
   if (e.kind === 'expense') {
     const participants = Array.isArray(e.participants) ? [...new Set(e.participants.filter(isId))].slice(0, 20) : [];
     if (!isId(e.paidBy) || !participants.length) return null;
@@ -166,6 +190,7 @@ export function sanitizeSharedEntry(e) {
       paidBy: e.paidBy,
       participants,
       createdBy: isId(e.createdBy) ? e.createdBy : e.paidBy,
+      ...(isId(e.billId) && /^\d{4}-\d{2}$/.test(e.period) ? { billId: e.billId, period: e.period } : {}),
     };
   }
   if (e.kind === 'settle') {
@@ -291,4 +316,72 @@ export function settlements(group) {
     if (creditors[j].v < 0.5) j += 1;
   }
   return out;
+}
+
+// Mi parte de los gastos en común entre dos fechas, como movimientos de solo lectura.
+export function myShares(groups, from, to) {
+  const lo = toKey(from);
+  const hi = toKey(to);
+  return groups.flatMap((group) =>
+    Object.values(group.entries)
+      .filter((e) => e.kind === 'expense' && !e.deleted && e.participants.includes(group.me) && e.date >= lo && e.date <= hi)
+      .map((e) => ({
+        id: `${group.id}:${e.id}`,
+        type: 'expense',
+        amount: Math.round((e.amount / e.participants.length) * 100) / 100,
+        category: e.category,
+        description: e.description || e.category,
+        date: e.date,
+        occurrence: e.date,
+        frequency: 'once',
+        reminder: null,
+        shared: group.name,
+        groupId: group.id,
+      }))
+  );
+}
+
+// --- Lista de compras ---
+export const shoppingItems = (group) =>
+  Object.values(group.entries)
+    .filter((e) => e.kind === 'item' && !e.deleted)
+    .sort((a, b) => Number(a.checked) - Number(b.checked) || a.updatedAt - b.updatedAt);
+
+// --- Cuentas fijas de la casa (mensuales) ---
+export const billsOf = (group) =>
+  Object.values(group.entries)
+    .filter((e) => e.kind === 'bill' && !e.deleted)
+    .sort((a, b) => Number(a.date.slice(8)) - Number(b.date.slice(8)));
+
+// Pago registrado de una cuenta en un mes ("YYYY-MM"), si lo hay.
+export const billPayment = (group, billId, period) =>
+  Object.values(group.entries).find((e) => e.kind === 'expense' && !e.deleted && e.billId === billId && e.period === period) ?? null;
+
+// Fecha de vencimiento de la cuenta en un mes concreto (mismo día; si el mes es más corto, el último día).
+export function billDueDate(bill, y, m) {
+  const day = Number(bill.date.slice(8));
+  const last = new Date(y, m + 1, 0).getDate();
+  return toKey(new Date(y, m, Math.min(day, last)));
+}
+
+// Cuentas pendientes como movimientos con aviso (para "Próximos recordatorios" y las notificaciones).
+export function billReminders(groups) {
+  return groups.flatMap((group) =>
+    billsOf(group)
+      .filter((b) => b.reminder != null)
+      .map((b) => ({
+        id: `bill:${group.id}:${b.id}`,
+        type: 'expense',
+        amount: b.amount,
+        category: b.category,
+        description: b.name,
+        date: b.date,
+        frequency: 'monthly',
+        until: null,
+        reminder: b.reminder,
+        bill: group.name,
+        groupId: group.id,
+        isPaid: (occurrence) => !!billPayment(group, b.id, occurrence.slice(0, 7)),
+      }))
+  );
 }

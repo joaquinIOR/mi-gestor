@@ -11,6 +11,11 @@ export const DEFAULT_SETTINGS = {
   currency: '$',
   theme: 'auto',
   palette: 'menta',
+  textSize: 'normal',
+  countShared: true,
+  pushEnabled: false,
+  pushEndpoint: null,
+  deviceTag: null,
   autoLock: 1,
   notificationDetails: false,
   wipeOnFailures: false,
@@ -20,3 +25,9 @@ export const DEFAULT_SETTINGS = {
   lastBackupAt: null,
   backupSnoozeUntil: 0,
 };
+
+export const TEXT_SIZES = [
+  { value: 'normal', label: 'Normal' },
+  { value: 'large', label: 'Grande' },
+  { value: 'xlarge', label: 'Muy grande' },
+];

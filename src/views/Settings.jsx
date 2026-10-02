@@ -1,13 +1,16 @@
 import { useEffect, useState } from 'react';
-import { Bell, Download, Fingerprint, KeyRound, Lock, ShieldAlert, Smartphone, Trash2, Upload, Zap } from 'lucide-react';
+import { Bell, Check, Copy, Download, Fingerprint, KeyRound, Lock, ShieldAlert, Smartphone, Tags, Trash2, Upload, Zap } from 'lucide-react';
 import { biometricErrorMessage, biometricSupported, registerBiometric } from '../lib/biometric';
 import { allowBackgroundBriefly } from '../lib/autolock';
 import { isEncryptedBackup, MIN_BACKUP_PASSWORD, openBackup, readBackupFile } from '../lib/backup';
 import RecoveryCode from '../components/RecoveryCode';
+import pushSql from '../../supabase/push.sql?raw';
+import pushFunction from '../../supabase/functions/mg-push/index.ts?raw';
+import { pushSupported } from '../lib/push';
 import { notificationsSupported } from '../lib/notify';
 import { isInstalled } from '../lib/persist';
 import { hideQuickAccess, showQuickAccess } from '../lib/quick';
-import { AUTO_LOCK_OPTIONS, CURRENCIES } from '../lib/settings';
+import { AUTO_LOCK_OPTIONS, CURRENCIES, TEXT_SIZES } from '../lib/settings';
 import { PALETTES } from '../lib/themes';
 import {
   biometricInfo,
@@ -139,6 +142,124 @@ function RecoveryForm({ onDone }) {
   );
 }
 
+function CategoryRow({ type, name, onRename, onDelete }) {
+  const [value, setValue] = useState(name);
+  const changed = value.trim() && value.trim() !== name;
+  return (
+    <div className="cat-row">
+      <input aria-label={`Nombre del tipo ${name}`} maxLength={24} value={value} onChange={(e) => setValue(e.target.value)} />
+      <button type="button" className="icon-btn" disabled={!changed} onClick={() => onRename(type, name, value.trim())} aria-label={`Guardar ${name}`}>
+        <Check size={18} />
+      </button>
+      <button
+        type="button"
+        className="icon-btn"
+        onClick={() => window.confirm(`¿Borrar el tipo «${name}»? Sus movimientos pasarán a «${type === 'income' ? 'Otros ingresos' : 'Otros'}».`) && onDelete(type, name)}
+        aria-label={`Borrar ${name}`}
+      >
+        <Trash2 size={18} />
+      </button>
+    </div>
+  );
+}
+
+function CategoryManager({ categories, onRename, onDelete }) {
+  const groups = [
+    { type: 'expense', label: 'Gastos' },
+    { type: 'income', label: 'Ingresos' },
+  ];
+  const total = (categories?.expense?.length ?? 0) + (categories?.income?.length ?? 0);
+  if (!total) return <p className="hint">Aún no creas tipos propios. Puedes hacerlo con «+ Nuevo tipo» al registrar un movimiento.</p>;
+  return groups.map((g) =>
+    categories[g.type]?.length ? (
+      <div className="field" key={g.type}>
+        <span>{g.label}</span>
+        {categories[g.type].map((name) => (
+          <CategoryRow key={name} type={g.type} name={name} onRename={onRename} onDelete={onDelete} />
+        ))}
+      </div>
+    ) : null
+  );
+}
+
+function CopyButton({ text, label }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <button
+      type="button"
+      className="btn small"
+      onClick={() =>
+        navigator.clipboard.writeText(text).then(
+          () => setCopied(true),
+          () => setCopied(false)
+        )
+      }
+    >
+      {copied ? <Check size={16} /> : <Copy size={16} />} {copied ? 'Copiado' : label}
+    </button>
+  );
+}
+
+function PushSection({ enabled, groups, onEnable, onDisable }) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const run = async (fn) => {
+    setBusy(true);
+    setError('');
+    try {
+      await fn();
+    } catch (err) {
+      setError(err.message || 'No se pudo cambiar.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (!pushSupported()) {
+    return <p className="hint">Este navegador no permite avisos con la app cerrada. En iPhone (iOS 16.4 o posterior), primero añade Mi Gestor a la pantalla de inicio.</p>;
+  }
+  if (!groups.length) return <p className="hint">Requiere un grupo conectado a tu Supabase (pestaña Grupo).</p>;
+
+  return (
+    <>
+      <p className="hint">
+        {enabled
+          ? '✅ Activados en este teléfono: recibirás avisos de tus recordatorios, cuentas de la casa y novedades del grupo aunque la app esté cerrada.'
+          : 'Recibe avisos de recordatorios, cuentas de la casa y novedades del grupo aunque la app esté cerrada. Los avisos nunca muestran montos ni nombres.'}
+      </p>
+      {!enabled && (
+        <details className="push-setup">
+          <summary>Preparar tu Supabase (una vez, quien creó el grupo)</summary>
+          <ol className="steps">
+            <li>
+              En Supabase → <b>SQL Editor</b>, pega y ejecuta este código.
+              <CopyButton text={pushSql} label="Copiar código SQL" />
+            </li>
+            <li>
+              En <b>Edge Functions</b> → <b>Deploy a new function</b> → <b>Via Editor</b>: nombre <code>mg-push</code>, pega este código y pulsa{' '}
+              <b>Deploy</b>.
+              <CopyButton text={pushFunction} label="Copiar código de la función" />
+            </li>
+            <li>
+              En la función <code>mg-push</code> → <b>Details</b>: desactiva <b>Verify JWT</b> (o «Enforce JWT verification») y guarda.
+            </li>
+          </ol>
+        </details>
+      )}
+      {error && <p className="error">{error}</p>}
+      {enabled ? (
+        <button type="button" className="btn" disabled={busy} onClick={() => run(onDisable)}>
+          Desactivar en este teléfono
+        </button>
+      ) : (
+        <button type="button" className="btn primary" disabled={busy} onClick={() => run(onEnable)}>
+          <Bell size={18} /> {busy ? 'Activando…' : 'Activar en este teléfono'}
+        </button>
+      )}
+    </>
+  );
+}
+
 function ExportForm({ onExport, onDone }) {
   const [password, setPassword] = useState('');
   const [confirm, setConfirm] = useState('');
@@ -233,7 +354,7 @@ function ImportForm({ onImport, onDone }) {
   );
 }
 
-export default function Settings({ settings, onChange, onExport, onImport, onReset, onLock, initialPanel = null, persistence }) {
+export default function Settings({ settings, onChange, onExport, onImport, onReset, onLock, initialPanel = null, persistence, categories, onRenameCategory, onDeleteCategory, groups = [], onEnablePush, onDisablePush }) {
   const [permission, setPermission] = useState(() => (notificationsSupported() ? Notification.permission : 'unsupported'));
   const [installPrompt, setInstallPrompt] = useState(() => window.deferredInstallPrompt ?? null);
   const [panel, setPanel] = useState(initialPanel);
@@ -420,6 +541,13 @@ export default function Settings({ settings, onChange, onExport, onImport, onRes
       {status && <p className="status">{status}</p>}
 
       <section className="settings-group">
+        <h3 className="card-title">
+          <Tags size={18} /> Mis tipos de gasto e ingreso
+        </h3>
+        <CategoryManager categories={categories} onRename={onRenameCategory} onDelete={onDeleteCategory} />
+      </section>
+
+      <section className="settings-group">
         <h3 className="card-title">Apariencia y general</h3>
         <div className="field">
           <span>Moneda</span>
@@ -452,6 +580,22 @@ export default function Settings({ settings, onChange, onExport, onImport, onRes
             ))}
           </div>
         </div>
+        <Toggle
+          checked={settings.countShared}
+          onChange={(v) => onChange({ countShared: v })}
+          label="Sumar mi parte de los gastos en común"
+          description="Tu parte de cada gasto del grupo cuenta en tus gastos del mes y en tu presupuesto."
+        />
+        <div className="field">
+          <span>Tamaño de letra</span>
+          <div className="segmented">
+            {TEXT_SIZES.map((t) => (
+              <button type="button" key={t.value} className={settings.textSize === t.value ? 'on' : ''} onClick={() => onChange({ textSize: t.value })}>
+                {t.label}
+              </button>
+            ))}
+          </div>
+        </div>
         <div className="field">
           <span>Modo</span>
           <div className="segmented">
@@ -474,6 +618,10 @@ export default function Settings({ settings, onChange, onExport, onImport, onRes
           {permission === 'unsupported' && (
             <p className="hint">Este navegador no admite notificaciones. En iPhone, primero añade la app a la pantalla de inicio.</p>
           )}
+        </div>
+        <div className="field">
+          <span>Avisos con la app cerrada</span>
+          <PushSection enabled={settings.pushEnabled} groups={groups} onEnable={onEnablePush} onDisable={onDisablePush} />
         </div>
         <div className="field">
           <span>Instalar en el teléfono</span>

@@ -1,5 +1,6 @@
 import { monthEnd, monthStart } from './dates';
 import { expandRange, sumTotals } from './recurrence';
+import { myShares } from './shared';
 
 export const WARN_OPTIONS = [
   { value: 0, label: 'No' },
@@ -7,11 +8,13 @@ export const WARN_OPTIONS = [
   { value: 90, label: '90 %' },
 ];
 
-// Gasto del mes actual (incluye las repeticiones programadas de este mes).
-export function monthSpent(movements, now = new Date()) {
+// Gasto del mes actual (incluye las repeticiones programadas y, si se indica, mi parte de los gastos en común).
+export function monthSpent(movements, groups = [], now = new Date()) {
   const y = now.getFullYear();
   const m = now.getMonth();
-  return sumTotals(expandRange(movements, monthStart(y, m), monthEnd(y, m))).expense;
+  const from = monthStart(y, m);
+  const to = monthEnd(y, m);
+  return sumTotals([...expandRange(movements, from, to), ...myShares(groups, from, to)]).expense;
 }
 
 // 0 = dentro del presupuesto, 1 = aviso previo, 2 = sobre el presupuesto.

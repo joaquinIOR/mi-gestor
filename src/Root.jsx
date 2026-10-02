@@ -44,6 +44,7 @@ export default function Root() {
     if (settings.theme === 'auto') root.removeAttribute('data-theme');
     else root.dataset.theme = settings.theme;
     root.dataset.palette = PALETTES.some((p) => p.id === settings.palette) ? settings.palette : DEFAULT_PALETTE;
+    root.dataset.text = settings.textSize;
     // La barra de estado del teléfono toma el color de fondo del tema.
     const paint = () => {
       const color = getComputedStyle(root).getPropertyValue('--bg').trim();
@@ -53,7 +54,7 @@ export default function Root() {
     const media = window.matchMedia('(prefers-color-scheme: dark)');
     media.addEventListener('change', paint);
     return () => media.removeEventListener('change', paint);
-  }, [settings.theme, settings.palette]);
+  }, [settings.theme, settings.palette, settings.textSize]);
 
   // Difumina el contenido al salir de la app para que no aparezca en la vista de apps recientes.
   useEffect(() => {

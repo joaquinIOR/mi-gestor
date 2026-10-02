@@ -1,5 +1,5 @@
 // Service worker: permite instalar la app y usarla sin conexión.
-const CACHE = 'mi-gestor-v3';
+const CACHE = 'mi-gestor-v4';
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
@@ -61,6 +61,24 @@ self.addEventListener('notificationclick', (event) => {
       if (!client) return self.clients.openWindow(url);
       if (quick) client.postMessage({ type: 'quick', quick });
       return client.focus();
+    })
+  );
+});
+
+// Avisos con la app cerrada (Web Push). El contenido es siempre genérico.
+self.addEventListener('push', (event) => {
+  let data = {};
+  try {
+    data = event.data ? event.data.json() : {};
+  } catch {
+    data = {};
+  }
+  event.waitUntil(
+    self.registration.showNotification(String(data.title || 'Mi Gestor').slice(0, 60), {
+      body: String(data.body || 'Tienes novedades en Mi Gestor.').slice(0, 160),
+      tag: String(data.tag || 'mi-gestor').slice(0, 40),
+      icon: 'icons/icon-192.png',
+      badge: 'icons/badge-96.png',
     })
   );
 });

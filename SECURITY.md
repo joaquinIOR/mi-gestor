@@ -46,9 +46,25 @@ Es lo único que sale del teléfono, y solo si creas o te unes a un grupo:
 - La app solo acepta servidores `https://*.supabase.co` y claves *publishable/anon* (rechaza la *secret*). La política de contenido (CSP) solo permite conectarse a Supabase.
 - La **invitación** (enlace o QR) contiene la clave del grupo después de `#`: esa parte nunca se envía a ningún servidor, pero **quien tenga el enlace puede ver y agregar gastos del grupo**. Compártelo solo por un canal privado.
 - Lo que llega del servidor se descifra, se valida campo por campo y se ignora si fue manipulado.
-- Tus gastos personales, notas y documentos **nunca** se comparten.
+- La lista de compras, las cuentas fijas de la casa y los pagos de esas cuentas son entradas del grupo y se cifran igual.
+- Tus gastos personales, notas, metas y documentos **nunca** se comparten. «Tu parte» de un gasto en común se calcula en el teléfono; no se envía nada extra.
 
-Todo usa la Web Crypto API del navegador. Los datos personales no salen del teléfono, salvo en la copia de seguridad que tú descargas. Los gastos en común viajan cifrados (ver abajo).
+### Avisos con la app cerrada
+
+Son opcionales y se activan teléfono por teléfono (Ajustes). Usan Web Push del navegador y una función de Supabase (`mg-push`):
+
+- **Los avisos no llevan datos.** El texto es siempre genérico («Hay novedades en un grupo compartido», «Tienes un pago o una cuenta por vencer»). Montos, nombres y descripciones solo se ven al abrir la app.
+- El servidor guarda, por teléfono: la dirección de envío que entrega el navegador (*endpoint*) con sus claves públicas, el identificador del grupo, una etiqueta al azar del teléfono y la **hora** de cada recordatorio programado (máximo 60, a 90 días). No guarda qué es cada recordatorio.
+- Cada aviso viaja **cifrado** (aes128gcm) y firmado con claves VAPID propias de tu proyecto, que se crean solas y nunca salen de tu Supabase.
+- Las tablas de avisos no se pueden leer con la clave *publishable*: el teléfono solo puede registrar, borrar o reprogramar **su propia** dirección mediante funciones. Leer direcciones y enviar es exclusivo de la función `mg-push` (clave de servicio de Supabase, que nunca está en la app).
+- La tarea programada (cada 10 minutos) necesita un secreto que solo conoce la base de datos. Los avisos de novedades del grupo tienen un límite de uno cada 20 segundos por grupo, y cada recordatorio se envía una sola vez.
+- Al desactivar los avisos, o cuando el navegador informa que el teléfono ya no los acepta, se borra su registro del servidor.
+
+### Exportar a Excel
+
+El botón **Exportar a Excel** (Movimientos → Resumen) descarga un CSV con tus movimientos **sin cifrar**, para abrirlo en Excel o Google Sheets. La app avisa antes de descargarlo. Guárdalo en un lugar seguro y bórralo cuando ya no lo uses. Las celdas de texto que empiezan con `=`, `+`, `-` o `@` se neutralizan para que una descripción no pueda ejecutarse como fórmula en la hoja de cálculo.
+
+Todo usa la Web Crypto API del navegador. Los datos personales no salen del teléfono, salvo en la copia de seguridad o el archivo de Excel que tú descargas. Los gastos en común viajan cifrados (ver arriba).
 
 ### Código de recuperación
 
@@ -65,7 +81,8 @@ La app pide al navegador almacenamiento persistente (`navigator.storage.persist`
 - **Si olvidas el código y también el código de recuperación, no hay forma de recuperar los datos personales.** Haz copias de seguridad cifradas y guarda su contraseña en un lugar seguro.
 - Un código corto solo de números (por ejemplo, de 6 cifras) se puede adivinar con un ordenador si alguien **copia** los datos cifrados. Usa 8 o más caracteres con letras.
 - Si el teléfono tiene malware con control total mientras la app está **desbloqueada**, ninguna app web puede evitarlo. Mantén el sistema actualizado y el teléfono con bloqueo de pantalla.
-- Los avisos de recordatorio solo aparecen al abrir la app.
+- Sin los avisos con la app cerrada activados, los recordatorios solo aparecen al abrir la app. Con ellos, llegan alrededor de las 9:00 (la tarea revisa cada 10 minutos), y dependen de que el sistema del teléfono no bloquee las notificaciones.
+- El archivo de Excel exportado **no está cifrado**.
 - La espera tras intentos fallidos protege el uso normal de la app; la protección real frente a quien copia los archivos es el cifrado y la longitud de tu código.
 
 ## Reportar un problema

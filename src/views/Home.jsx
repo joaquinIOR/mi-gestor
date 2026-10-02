@@ -1,29 +1,37 @@
 import { useMemo } from 'react';
 import { Bell, ChevronRight, IdCard, StickyNote, TrendingDown, TrendingUp } from 'lucide-react';
 import BudgetBar from '../components/BudgetBar';
+import { GoalsCard } from '../components/Goals';
 import MovementRow from '../components/MovementRow';
 import { addDays, MONTHS, monthEnd, monthStart, parseKey, todayKey } from '../lib/dates';
 import { formatMoney } from '../lib/format';
 import { expandRange, sumTotals } from '../lib/recurrence';
+import { billReminders, myShares } from '../lib/shared';
 
-export default function Home({ movements, notesCount, currency, budget, onSetBudget, settings, onSettings, onAdd, onEdit, onNavigate }) {
+export default function Home({ movements, groups, goals, onOpenGoals, notesCount, currency, budget, onSetBudget, settings, onSettings, onAdd, onEdit, onNavigate }) {
   const today = todayKey();
   const now = parseKey(today);
   const y = now.getFullYear();
   const m = now.getMonth();
 
-  const monthItems = useMemo(() => expandRange(movements, monthStart(y, m), monthEnd(y, m)), [movements, y, m]);
+  const countShared = settings.countShared;
+  const monthItems = useMemo(
+    () => [...expandRange(movements, monthStart(y, m), monthEnd(y, m)), ...(countShared ? myShares(groups, monthStart(y, m), monthEnd(y, m)) : [])],
+    [movements, groups, countShared, y, m]
+  );
+  const sharedTotal = monthItems.filter((i) => i.shared).reduce((sum, i) => sum + i.amount, 0);
   const totals = sumTotals(monthItems);
 
   const upcoming = useMemo(() => {
     const start = parseKey(today);
     // Cada movimiento aparece cuando entra en su propio plazo de aviso (mínimo una semana).
-    return movements
+    return [...movements, ...billReminders(groups)]
       .filter((x) => x.reminder != null)
       .flatMap((x) => expandRange([x], start, addDays(start, Math.max(7, x.reminder))))
+      .filter((x) => !x.isPaid?.(x.occurrence))
       .sort((a, b) => a.occurrence.localeCompare(b.occurrence))
       .slice(0, 6);
-  }, [movements, today]);
+  }, [movements, groups, today]);
 
   const byCategory = useMemo(() => {
     const map = new Map();
@@ -50,6 +58,7 @@ export default function Home({ movements, notesCount, currency, budget, onSetBud
               <TrendingDown size={16} /> Gastos
             </span>
             <strong>{formatMoney(totals.expense, currency)}</strong>
+            {sharedTotal > 0 && <small className="hero-note">incluye {formatMoney(sharedTotal, currency)} de tu parte en común</small>}
           </div>
         </div>
       </section>
@@ -73,6 +82,8 @@ export default function Home({ movements, notesCount, currency, budget, onSetBud
           <TrendingUp size={20} /> Ingreso
         </button>
       </div>
+
+      <GoalsCard goals={goals} currency={currency} onOpen={onOpenGoals} />
 
       <button type="button" className="card link-card" onClick={() => onNavigate('documents')}>
         <span className="link-icon docs">
@@ -108,7 +119,7 @@ export default function Home({ movements, notesCount, currency, budget, onSetBud
                 item={item}
                 currency={currency}
                 showDate
-                onClick={() => onEdit(item)}
+                onClick={() => (item.bill ? onNavigate('group') : onEdit(item))}
               />
             ))}
           </div>

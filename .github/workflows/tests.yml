@@ -32,10 +32,15 @@ jobs:
         run: |
           curl -sSL -o pgrst.tar.xz https://github.com/PostgREST/postgrest/releases/download/v12.2.3/postgrest-v12.2.3-linux-static-x64.tar.xz
           tar xf pgrst.tar.xz
+      - name: Instalar Deno (para probar la función de avisos)
+        uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
       - run: npm test
         env:
           SYNC_PG_URI: postgres://postgres:postgres@localhost:5432/postgres
           POSTGREST_BIN: ./postgrest
+          DENO_BIN: deno
       - uses: actions/upload-artifact@v4
         if: failure()
         with:

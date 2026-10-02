@@ -1,4 +1,4 @@
-import { Bell, CreditCard, Repeat } from 'lucide-react';
+import { Bell, CreditCard, House, Repeat, Users } from 'lucide-react';
 import { categoryEmoji } from '../lib/categories';
 import { relativeDay } from '../lib/dates';
 import { formatMoney } from '../lib/format';
@@ -15,7 +15,17 @@ export default function MovementRow({ item, currency, onClick, showDate = false 
         <span className="row-title">{item.description || item.category}</span>
         <span className="row-sub">
           {sub.join(' · ')}
-          {item.frequency !== 'once' && (
+          {item.shared && (
+            <span className="badge">
+              <Users size={11} /> Tu parte · {item.shared}
+            </span>
+          )}
+          {item.bill && (
+            <span className="badge">
+              <House size={11} /> Cuenta de {item.bill}
+            </span>
+          )}
+          {item.frequency !== 'once' && !item.bill && (
             <span className="badge">
               <Repeat size={11} /> {frequencyLabel(item.frequency)}
             </span>

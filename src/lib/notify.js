@@ -11,7 +11,8 @@ export function dueReminders(movements) {
   const today = parseKey(todayKey());
   return movements
     .filter((m) => m.reminder != null)
-    .flatMap((m) => occurrences(m, today, addDays(today, m.reminder)).map((occurrence) => ({ ...m, occurrence })));
+    .flatMap((m) => occurrences(m, today, addDays(today, m.reminder)).map((occurrence) => ({ ...m, occurrence })))
+    .filter((m) => !m.isPaid?.(m.occurrence));
 }
 
 function whenText(occurrence, today) {
@@ -45,7 +46,7 @@ export async function notifyDueReminders(movements, currency, details = false) {
     const registration = await navigator.serviceWorker?.getRegistration();
     for (const m of pending) {
       const when = whenText(m.occurrence, today);
-      const title = m.card ? `Pago de tarjeta ${when}` : m.type === 'income' ? `Ingreso ${when}` : `Pago ${when}`;
+      const title = m.bill ? `Cuenta de la casa ${when}` : m.card ? `Pago de tarjeta ${when}` : m.type === 'income' ? `Ingreso ${when}` : `Pago ${when}`;
       const options = {
         body: details ? `${m.card || m.description || m.category} · ${formatMoney(m.amount, currency)}` : 'Abre Mi Gestor para ver el detalle.',
         icon: 'icons/icon-192.png',

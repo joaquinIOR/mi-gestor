@@ -1,6 +1,7 @@
 import { decryptJson, deriveKey, encryptJson, fromBase64, KDF_ITERATIONS, randomBytes, toBase64 } from './crypto';
 import { todayKey } from './dates';
 import { blobToDataUrl } from './images';
+import { sanitizeGoals } from './goals';
 import { sanitizeGroups } from './shared';
 import { sanitizeBudget, sanitizeCategories, sanitizeDocuments, sanitizeMovements, sanitizeNotes } from './validate';
 
@@ -70,6 +71,7 @@ export async function openBackup(json, password) {
     categories: sanitizeCategories(payload.categories),
     budget: sanitizeBudget(payload.budget),
     groups: sanitizeGroups(payload.groups),
+    goals: sanitizeGoals(payload.goals),
     documents: sanitizeDocuments(payload.documents),
   };
 }

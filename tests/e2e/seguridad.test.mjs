@@ -13,7 +13,7 @@ await p.evaluate(async () => {
   localStorage.setItem('miGestor.movements', JSON.stringify([{id:'a',type:'expense',amount:45.5,category:'Servicios',description:'Luz secreta',date:'2026-10-01',frequency:'monthly',until:null,reminder:0,createdAt:1}]));
   localStorage.setItem('miGestor.notes', JSON.stringify([{id:'n',title:'Clave wifi',body:'hunter2',color:'yellow',pinned:false,updatedAt:1}]));
   const png = await (await fetch('icons/icon-192.png')).blob();
-  await new Promise((res, rej) => { const r=indexedDB.open('mi-gestor',1); r.onupgradeneeded=()=>r.result.createObjectStore('documents',{keyPath:'id'}); r.onsuccess=()=>{ const tx=r.result.transaction('documents','readwrite'); tx.objectStore('documents').put({id:'d1',type:'carnet',name:'Carnet Joaquin',number:'12345678-9',expiry:'',notes:'',images:[png],createdAt:1}); tx.oncomplete=()=>{r.result.close();res();}; tx.onerror=rej; }; });
+  await new Promise((res, rej) => { const r=indexedDB.open('mi-gestor',1); r.onupgradeneeded=()=>r.result.createObjectStore('documents',{keyPath:'id'}); r.onsuccess=()=>{ const tx=r.result.transaction('documents','readwrite'); tx.objectStore('documents').put({id:'d1',type:'carnet',name:'Carnet Tomas',number:'12345678-9',expiry:'',notes:'',images:[png],createdAt:1}); tx.oncomplete=()=>{r.result.close();res();}; tx.onerror=rej; }; });
 });
 await p.reload({ waitUntil: 'networkidle' });
 ok(await p.getByText('Protege Mi Gestor').isVisible(), 'pide crear código al abrir');
@@ -36,7 +36,7 @@ const disk = await p.evaluate(async () => {
   const hasBlob = dump.documents.some(d => (d.images||[]).some(i => i instanceof Blob));
   return { ls, text, hasBlob, docs: dump.documents.length, vault: dump.vault.length };
 });
-ok(!/Luz secreta|hunter2|Carnet Joaquin|12345678/.test(disk.ls + disk.text), 'nada legible en localStorage ni IndexedDB');
+ok(!/Luz secreta|hunter2|Carnet Tomas|12345678/.test(disk.ls + disk.text), 'nada legible en localStorage ni IndexedDB');
 ok(!disk.hasBlob && disk.docs===1 && disk.vault===1, 'fotos guardadas cifradas (sin Blob en claro)');
 ok(!/miGestor\.(movements|notes)/.test(disk.ls), 'claves antiguas sin cifrar eliminadas');
 ok(!disk.ls.includes(CODE), 'el código no se guarda');

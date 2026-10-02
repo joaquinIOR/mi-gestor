@@ -1,14 +1,17 @@
 import { useState } from 'react';
-import { ArrowRight, Check, Copy, HandCoins, LogOut, Plus, RefreshCw, Share2, Trash2, UserPen, UserPlus, Users } from 'lucide-react';
+import { ArrowRight, Check, Copy, HandCoins, House, LogOut, Plus, RefreshCw, Share2, ShoppingCart, Square, SquareCheck, Trash2, UserPen, UserPlus, Users, X } from 'lucide-react';
 import setupSql from '../../supabase/setup.sql?raw';
 import QrCode from '../components/QrCode';
 import Sheet from '../components/Sheet';
 import { categoryEmoji, categoryList } from '../lib/categories';
-import { formatShort, todayKey } from '../lib/dates';
+import { formatShort, parseKey, todayKey } from '../lib/dates';
 import { formatMoney, parseAmount, uid } from '../lib/format';
 import {
   activity,
   balances,
+  billDueDate,
+  billPayment,
+  billsOf,
   createGroup,
   inviteLink,
   joinGroup,
@@ -18,6 +21,7 @@ import {
   normalizeServer,
   parseInvite,
   settlements,
+  shoppingItems,
   testServer,
 } from '../lib/shared';
 
@@ -53,7 +57,7 @@ function ProfileFields({ name, setName, color, setColor }) {
     <>
       <label className="field">
         <span>Tu nombre en el grupo</span>
-        <input placeholder="Ej.: Joaquín" maxLength={30} value={name} onChange={(e) => setName(e.target.value)} />
+        <input placeholder="Ej.: Tomás" maxLength={30} value={name} onChange={(e) => setName(e.target.value)} />
       </label>
       <div className="field">
         <span>Tu color</span>
@@ -164,8 +168,11 @@ function CreateGroupForm({ onCreate }) {
 function JoinForm({ initialText, takenColors, onJoin }) {
   const [text, setText] = useState(initialText ?? '');
   const [name, setName] = useState('');
-  // Quien se une empieza con otro color que quien creó el grupo (se puede cambiar).
-  const [color, setColor] = useState(MEMBER_COLORS.find((c, i) => i > 0 && !takenColors.includes(c)) ?? MEMBER_COLORS[1]);
+  // Quien se une empieza con un color al azar distinto del de quien creó el grupo (se puede cambiar en «Mi perfil»).
+  const [color, setColor] = useState(() => {
+    const free = MEMBER_COLORS.slice(1).filter((c) => !takenColors.includes(c));
+    return free[Math.floor(Math.random() * free.length)] ?? MEMBER_COLORS[1];
+  });
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
 
@@ -284,6 +291,7 @@ function SharedExpenseForm({ group, initial, categories, currency, onSave, onDel
       paidBy,
       participants,
       createdBy: initial.createdBy ?? group.me,
+      ...(initial.billId ? { billId: initial.billId, period: initial.period } : {}),
     });
   };
 
@@ -329,7 +337,12 @@ function SharedExpenseForm({ group, initial, categories, currency, onSave, onDel
             </button>
           ))}
         </div>
-        {value > 0 && participants.length > 0 && <p className="hint">{formatMoney(Math.round(share), currency)} cada una</p>}
+        {value > 0 && participants.length > 0 && (
+          <p className="hint">
+            {formatMoney(Math.round(share), currency)} cada una.
+            {participants.includes(group.me) && ' Tu parte se suma sola a tus gastos del mes: no la registres otra vez.'}
+          </p>
+        )}
       </div>
       <label className="field">
         <span>Fecha</span>
@@ -434,6 +447,240 @@ function ProfileForm({ group, onSave }) {
   );
 }
 
+const monthKey = (key) => key.slice(0, 7);
+
+function BillForm({ group, initial, categories, currency, onSave, onDelete }) {
+  const people = members(group);
+  const [name, setName] = useState(initial.name ?? '');
+  const [amount, setAmount] = useState(initial.amount != null ? String(initial.amount) : '');
+  const [category, setCategory] = useState(initial.category ?? 'Servicios');
+  const [day, setDay] = useState(initial.date ? String(Number(initial.date.slice(8))) : '10');
+  const [reminder, setReminder] = useState(initial.reminder != null ? String(initial.reminder) : '3');
+  const [participants, setParticipants] = useState(initial.participants ?? people.map((p) => p.id));
+  const [error, setError] = useState('');
+  const toggle = (id) => setParticipants((list) => (list.includes(id) ? list.filter((x) => x !== id) : [...list, id]));
+
+  const submit = (e) => {
+    e.preventDefault();
+    const value = parseAmount(amount);
+    const d = Number(day);
+    if (!name.trim()) return setError('Ponle un nombre, por ejemplo «Luz».');
+    if (!(value > 0)) return setError('Escribe el monto aproximado.');
+    if (!Number.isInteger(d) || d < 1 || d > 31) return setError('El día de vencimiento debe estar entre 1 y 31.');
+    if (!participants.length) return setError('Elige entre quiénes se divide.');
+    // Se guarda como fecha de enero (todos los días 1–31 existen); cada mes vence ese día o el último del mes.
+    const year = initial.date ? initial.date.slice(0, 4) : todayKey().slice(0, 4);
+    onSave({
+      id: initial.id ?? uid(),
+      kind: 'bill',
+      name: name.trim(),
+      amount: Math.round(value * 100) / 100,
+      category,
+      date: `${year}-01-${String(d).padStart(2, '0')}`,
+      reminder: reminder === 'none' ? null : Number(reminder),
+      participants,
+      createdBy: initial.createdBy ?? group.me,
+    });
+  };
+
+  return (
+    <form className="form" onSubmit={submit}>
+      <label className="field">
+        <span>Nombre</span>
+        <input placeholder="Ej.: Luz, agua, internet, gas…" maxLength={40} value={name} onChange={(e) => setName(e.target.value)} autoFocus={!initial.id} />
+      </label>
+      <label className="field">
+        <span>Monto aproximado al mes</span>
+        <div className="money-input">
+          <span>{currency}</span>
+          <input inputMode="decimal" placeholder="0" value={amount} onChange={(e) => setAmount(e.target.value.replace(/[^\d.,]/g, ''))} />
+        </div>
+      </label>
+      <label className="field">
+        <span>Vence cada mes el día</span>
+        <input inputMode="numeric" value={day} onChange={(e) => setDay(e.target.value.replace(/\D/g, '').slice(0, 2))} />
+      </label>
+      <label className="field">
+        <span>Aviso a todas</span>
+        <select value={reminder} onChange={(e) => setReminder(e.target.value)}>
+          <option value="none">Sin aviso</option>
+          <option value="0">El mismo día</option>
+          <option value="1">1 día antes</option>
+          <option value="3">3 días antes</option>
+          <option value="7">1 semana antes</option>
+        </select>
+      </label>
+      <div className="field">
+        <span>Tipo</span>
+        <div className="chips">
+          {categoryList('expense', categories).map((c) => (
+            <button type="button" key={c.name} className={`chip ${category === c.name ? 'on' : ''}`} onClick={() => setCategory(c.name)}>
+              {c.emoji} {c.name}
+            </button>
+          ))}
+        </div>
+      </div>
+      <div className="field">
+        <span>Se divide entre</span>
+        <div className="chips">
+          {people.map((p) => (
+            <button type="button" key={p.id} className={`chip ${participants.includes(p.id) ? 'on' : ''}`} onClick={() => toggle(p.id)}>
+              <i className="member-dot" style={{ background: p.color }} /> {nameOf(group, p.id)}
+            </button>
+          ))}
+        </div>
+      </div>
+      {error && <p className="error">{error}</p>}
+      <div className="actions">
+        {initial.id && (
+          <button type="button" className="btn danger ghost" onClick={() => window.confirm(`¿Borrar la cuenta «${initial.name}» para todo el grupo?`) && onDelete(initial)}>
+            <Trash2 size={18} /> Borrar
+          </button>
+        )}
+        <button type="submit" className="btn primary grow">
+          Guardar
+        </button>
+      </div>
+    </form>
+  );
+}
+
+function BillsSection({ group, currency, onAdd, onEdit, onPay }) {
+  const bills = billsOf(group);
+  const today = todayKey();
+  const now = parseKey(today);
+  const y = now.getFullYear();
+  const m = now.getMonth();
+  const period = monthKey(today);
+  const nextMonth = new Date(y, m + 1, 1);
+  const pending = bills.filter((b) => !billPayment(group, b.id, period));
+  const pendingTotal = pending.reduce((sum, b) => sum + b.amount, 0);
+
+  return (
+    <section className="card">
+      <div className="day-head">
+        <h3 className="card-title">
+          <House size={18} /> Cuentas de la casa
+        </h3>
+        <button type="button" className="btn small primary" onClick={onAdd}>
+          <Plus size={16} /> Agregar
+        </button>
+      </div>
+      {bills.length ? (
+        <>
+          <p className="hint">
+            {pending.length ? `Faltan ${pending.length} por pagar este mes (≈ ${formatMoney(pendingTotal, currency)}).` : '✅ Todas las cuentas de este mes están pagadas.'}
+          </p>
+          <div className="list">
+            {bills.map((b) => {
+              const due = billDueDate(b, y, m);
+              const paid = billPayment(group, b.id, period);
+              const late = !paid && due < today;
+              return (
+                <div key={b.id} className="row bill-row">
+                  <button type="button" className="bill-main" onClick={() => onEdit(b)}>
+                    <span className={`row-icon ${paid ? 'income' : 'expense'}`} aria-hidden="true">
+                      {categoryEmoji(b.category)}
+                    </span>
+                    <span className="row-main">
+                      <span className="row-title">{b.name}</span>
+                      <span className={`row-sub ${late ? 'expense' : ''}`}>
+                        {paid
+                          ? `✓ Pagada por ${nameOf(group, paid.paidBy).replace(/^Tú$/, 'ti')} · próxima: ${formatShort(billDueDate(b, nextMonth.getFullYear(), nextMonth.getMonth()))}`
+                          : `${late ? 'Venció' : 'Vence'} el ${formatShort(due)} · ≈ ${formatMoney(b.amount, currency)}`}
+                      </span>
+                    </span>
+                  </button>
+                  {!paid && (
+                    <button
+                      type="button"
+                      className="btn small"
+                      onClick={() =>
+                        onPay({ description: b.name, amount: b.amount, category: b.category, participants: b.participants, billId: b.id, period, date: today })
+                      }
+                    >
+                      Pagar
+                    </button>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </>
+      ) : (
+        <p className="empty">Agrega las cuentas que se repiten cada mes (luz, agua, internet, gas…). Les avisaremos antes de que venzan.</p>
+      )}
+    </section>
+  );
+}
+
+function ShoppingSection({ group, onSave, onToExpense }) {
+  const [text, setText] = useState('');
+  const items = shoppingItems(group);
+  const checked = items.filter((i) => i.checked);
+
+  const add = (e) => {
+    e.preventDefault();
+    const value = text.trim();
+    if (!value) return;
+    onSave({ id: uid(), kind: 'item', text: value.slice(0, 60), checked: false, checkedBy: null, createdBy: group.me });
+    setText('');
+  };
+
+  return (
+    <section className="card">
+      <h3 className="card-title">
+        <ShoppingCart size={18} /> Lista de compras
+      </h3>
+      <form className="inline-add" onSubmit={add}>
+        <input placeholder="Ej.: pan, leche, detergente…" maxLength={60} value={text} onChange={(e) => setText(e.target.value)} aria-label="Producto" />
+        <button type="submit" className="btn small primary">
+          Agregar
+        </button>
+      </form>
+      {items.length ? (
+        <ul className="shopping">
+          {items.map((i) => (
+            <li key={i.id} className={i.checked ? 'done' : ''}>
+              <button
+                type="button"
+                className="shop-check"
+                role="checkbox"
+                aria-checked={i.checked}
+                onClick={() => onSave({ ...i, checked: !i.checked, checkedBy: i.checked ? null : group.me })}
+              >
+                {i.checked ? <SquareCheck size={22} /> : <Square size={22} />}
+                <span>{i.text}</span>
+                {i.createdBy && i.createdBy !== group.me && <small className="muted">· {nameOf(group, i.createdBy)}</small>}
+              </button>
+              <button type="button" className="icon-btn small" aria-label={`Quitar ${i.text}`} onClick={() => onSave({ ...i, deleted: true })}>
+                <X size={16} />
+              </button>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="empty">La lista está vacía. Lo que agregues lo verán todas al instante.</p>
+      )}
+      {checked.length > 0 && (
+        <button
+          type="button"
+          className="btn primary"
+          onClick={() =>
+            onToExpense({
+              description: `Compras: ${checked.map((i) => i.text).join(', ')}`.slice(0, 60),
+              category: 'Comida',
+              fromItems: checked.map((i) => i.id),
+            })
+          }
+        >
+          <ShoppingCart size={18} /> Registrar compra de {checked.length} {checked.length === 1 ? 'producto' : 'productos'}
+        </button>
+      )}
+    </section>
+  );
+}
+
 function syncText(info) {
   if (!info) return 'Conectando…';
   if (info.error) return `⚠️ ${info.error} Se reintentará solo.`;
@@ -444,6 +691,7 @@ function syncText(info) {
 export default function Group({ groups, syncInfo, invite, currency, categories, onAddGroup, onSaveEntry, onLeave, onSyncNow }) {
   const [sheet, setSheet] = useState(() => (invite ? { type: 'join' } : null));
   const [groupId, setGroupId] = useState(groups[0]?.id ?? null);
+  const [section, setSection] = useState('gastos');
   const group = groups.find((g) => g.id === groupId) ?? groups[0];
   const close = () => setSheet(null);
 
@@ -502,8 +750,14 @@ export default function Group({ groups, syncInfo, invite, currency, categories, 
   const mine = net[group.me] ?? 0;
   const save = (entry) => {
     onSaveEntry(group.id, entry);
+    // Al pasar la lista de compras a un gasto, se quitan de la lista los productos marcados.
+    for (const itemId of sheet?.initial?.fromItems ?? []) {
+      const item = group.entries[itemId];
+      if (item) onSaveEntry(group.id, { ...item, deleted: true });
+    }
     setSheet(null);
   };
+  const saveQuiet = (entry) => onSaveEntry(group.id, entry);
   const remove = (entry) => save({ ...entry, deleted: true });
 
   return (
@@ -547,6 +801,27 @@ export default function Group({ groups, syncInfo, invite, currency, categories, 
         </div>
       </section>
 
+      <div className="segmented" role="tablist" aria-label="Secciones del grupo">
+        {[
+          ['gastos', 'Gastos'],
+          ['casa', 'Cuentas fijas'],
+          ['lista', 'Compras'],
+        ].map(([id, label]) => (
+          <button type="button" key={id} role="tab" aria-selected={section === id} className={section === id ? 'on' : ''} onClick={() => setSection(id)}>
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {section === 'casa' && (
+        <BillsSection group={group} currency={currency} onAdd={() => setSheet({ type: 'bill', initial: {} })} onEdit={(b) => setSheet({ type: 'bill', initial: b })} onPay={(initial) => setSheet({ type: 'expense', initial })} />
+      )}
+      {section === 'lista' && (
+        <ShoppingSection group={group} onSave={saveQuiet} onToExpense={(initial) => setSheet({ type: 'expense', initial })} />
+      )}
+
+      {section === 'gastos' && (
+      <>
       <section className="card">
         <h3 className="card-title">
           <HandCoins size={18} /> Cuentas
@@ -610,6 +885,8 @@ export default function Group({ groups, syncInfo, invite, currency, categories, 
           <p className="empty">Aún no hay gastos en común.</p>
         )}
       </section>
+      </>
+      )}
 
       <div className="actions group-footer">
         <button type="button" className="btn small ghost" onClick={() => setSheet({ type: 'profile' })}>
@@ -636,6 +913,11 @@ export default function Group({ groups, syncInfo, invite, currency, categories, 
       {sheet?.type === 'expense' && (
         <Sheet title={sheet.initial.id ? 'Editar gasto en común' : 'Gasto en común'} onClose={close}>
           <SharedExpenseForm group={group} initial={sheet.initial} categories={categories} currency={currency} onSave={save} onDelete={remove} />
+        </Sheet>
+      )}
+      {sheet?.type === 'bill' && (
+        <Sheet title={sheet.initial.id ? 'Editar cuenta de la casa' : 'Nueva cuenta de la casa'} onClose={close}>
+          <BillForm group={group} initial={sheet.initial} categories={categories} currency={currency} onSave={save} onDelete={remove} />
         </Sheet>
       )}
       {sheet?.type === 'settle' && (

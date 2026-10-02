@@ -6,7 +6,7 @@ const DOCS = 'documents';
 const VAULT = 'vault';
 const LEGACY_KEYS = { movements: 'miGestor.movements', notes: 'miGestor.notes', categories: 'miGestor.categories' };
 
-export const EMPTY_STATE = { movements: [], notes: [], categories: { expense: [], income: [] }, budget: null, groups: [] };
+export const EMPTY_STATE = { movements: [], notes: [], categories: { expense: [], income: [] }, budget: null, groups: [], goals: [] };
 
 function openDb() {
   return new Promise((resolve, reject) => {

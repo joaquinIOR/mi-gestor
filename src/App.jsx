@@ -1,16 +1,19 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ArrowLeftRight, CalendarDays, HardDriveDownload, House, IdCard, KeyRound, Lock, Plus, Settings as SettingsIcon, StickyNote, Users } from 'lucide-react';
 import BudgetAlert from './components/BudgetAlert';
+import Goals from './components/Goals';
 import MovementForm from './components/MovementForm';
 import Sheet from './components/Sheet';
 import { backgroundAllowed } from './lib/autolock';
 import { exportBackup } from './lib/backup';
 import { budgetAlert, monthSpent } from './lib/budget';
+import { categoryList } from './lib/categories';
 import { formatMoney } from './lib/format';
 import { notifyDueReminders } from './lib/notify';
 import { backupDue, requestPersistence, snoozeUntil } from './lib/persist';
+import { disablePush, enablePush, newDeviceTag, notifyGroup, registerGroups, reminderTimes, syncSchedule } from './lib/push';
 import { hasRecovery } from './lib/vault';
-import { applySync, syncGroup, upsertLocal } from './lib/shared';
+import { applySync, billReminders, syncGroup, upsertLocal } from './lib/shared';
 import { DEFAULT_SETTINGS } from './lib/settings';
 import { EMPTY_STATE } from './lib/store';
 import CalendarView from './views/CalendarView';
@@ -41,6 +44,8 @@ export default function App({ session, settings, setSettings, quick, invite, onI
   const [categories, setCategories] = useState(session.state.categories ?? EMPTY_STATE.categories);
   const [budget, setBudget] = useState(session.state.budget ?? null);
   const [groups, setGroups] = useState(session.state.groups ?? []);
+  const [goals, setGoals] = useState(session.state.goals ?? []);
+  const [goalsOpen, setGoalsOpen] = useState(false);
   const [syncInfo, setSyncInfo] = useState({});
   const [toast, setToast] = useState(null);
   const [saveError, setSaveError] = useState(false);
@@ -71,14 +76,19 @@ export default function App({ session, settings, setSettings, quick, invite, onI
   // Cada cambio se guarda cifrado.
   useEffect(() => {
     store
-      .saveState({ movements, notes, categories, budget, groups })
+      .saveState({ movements, notes, categories, budget, groups, goals })
       .then(() => setSaveError(false))
       .catch(() => setSaveError(true));
-  }, [store, movements, notes, categories, budget, groups]);
+  }, [store, movements, notes, categories, budget, groups, goals]);
 
   // --- Gastos en común: sincronización cifrada con el servidor ---
   const groupsRef = useRef(groups);
   const syncing = useRef(false);
+  const settingsRef = useRef(settings);
+  const lastNotify = useRef({});
+  useEffect(() => {
+    settingsRef.current = settings;
+  }, [settings]);
   useEffect(() => {
     groupsRef.current = groups;
   }, [groups]);
@@ -95,6 +105,12 @@ export default function App({ session, settings, setSettings, quick, invite, onI
           const { group: merged, news } = applySync(current, result);
           const changed = result.pushed.length || result.cursor !== current.cursor || news.length;
           if (changed || result.incoming.length) setGroups((gs) => gs.map((g) => (g.id === result.id ? applySync(g, result).group : g)));
+          // Avisa a los otros teléfonos del grupo (como máximo una vez cada 20 s).
+          const { pushEnabled, deviceTag } = settingsRef.current;
+          if (result.pushed.length && pushEnabled && Date.now() - (lastNotify.current[result.id] ?? 0) > 20000) {
+            lastNotify.current[result.id] = Date.now();
+            notifyGroup(current, deviceTag);
+          }
           setSyncInfo((info) => ({ ...info, [result.id]: { at: Date.now(), error: null } }));
           const latest = news[news.length - 1];
           if (latest) {
@@ -102,7 +118,13 @@ export default function App({ session, settings, setSettings, quick, invite, onI
             const text =
               latest.kind === 'member'
                 ? `${latest.name} se unió a «${current.name}»`
-                : latest.kind === 'settle'
+                : latest.kind === 'item'
+                  ? `${who} agregó «${latest.text}» a la lista de compras`
+                  : latest.kind === 'bill'
+                    ? `${who} agregó la cuenta «${latest.name}»`
+                    : latest.billId
+                      ? `${who} pagó la cuenta «${latest.description}» · ${formatMoney(latest.amount, settings.currency)}`
+                      : latest.kind === 'settle'
                   ? `${who} registró un pago de ${formatMoney(latest.amount, settings.currency)}`
                   : `${who} agregó «${latest.description || latest.category}» · ${formatMoney(latest.amount, settings.currency)}`;
             setToast({ text, at: Date.now() });
@@ -137,9 +159,38 @@ export default function App({ session, settings, setSettings, quick, invite, onI
   const addGroup = (group) => {
     setGroups((gs) => [...gs.filter((g) => g.id !== group.id), group]);
     onInviteHandled();
+    if (settings.pushEnabled) registerGroups([group], settings.deviceTag).catch(() => {});
   };
+
+  // Avisos con la app cerrada.
+  const patchSettings = (patch) => setSettings((s) => ({ ...DEFAULT_SETTINGS, ...s, ...patch }));
+  const turnOnPush = async () => {
+    const deviceTag = settings.deviceTag ?? newDeviceTag();
+    const endpoint = await enablePush(groups, deviceTag);
+    patchSettings({ pushEnabled: true, pushEndpoint: endpoint, deviceTag });
+  };
+  const turnOffPush = async () => {
+    await disablePush(groups).catch(() => {});
+    patchSettings({ pushEnabled: false, pushEndpoint: null });
+  };
+  const scheduleKey = useRef('');
+  useEffect(() => {
+    if (!settings.pushEnabled || !settings.pushEndpoint || !groups.length) return;
+    const timer = setTimeout(() => {
+      const times = reminderTimes([...movements, ...billReminders(groups)]);
+      const key = JSON.stringify(times);
+      if (key === scheduleKey.current) return;
+      syncSchedule(groups[0].server, settings.pushEndpoint, times)
+        .then(() => {
+          scheduleKey.current = key;
+        })
+        .catch(() => {});
+    }, 2000);
+    return () => clearTimeout(timer);
+  }, [movements, groups, settings.pushEnabled, settings.pushEndpoint]);
   const saveSharedEntry = (groupId, entry) => {
     setGroups((gs) => gs.map((g) => (g.id === groupId ? upsertLocal(g, entry) : g)));
+    if (entry.kind === 'expense') checkBudget(movements, budget, groups.map((g) => (g.id === groupId ? upsertLocal(g, entry) : g)));
     setTimeout(runSync, 50);
   };
   const leaveGroup = (groupId) => setGroups((gs) => gs.filter((g) => g.id !== groupId));
@@ -148,13 +199,13 @@ export default function App({ session, settings, setSettings, quick, invite, onI
   useEffect(() => {
     const check = () => {
       if (document.visibilityState === 'visible') {
-        notifyDueReminders(movements, settings.currency, settings.notificationDetails).catch(() => {});
+        notifyDueReminders([...movements, ...billReminders(groups)], settings.currency, settings.notificationDetails).catch(() => {});
       }
     };
     check();
     document.addEventListener('visibilitychange', check);
     return () => document.removeEventListener('visibilitychange', check);
-  }, [movements, settings.currency, settings.notificationDetails]);
+  }, [movements, groups, settings.currency, settings.notificationDetails]);
 
   // Bloqueo automático: por inactividad y al volver de segundo plano.
   useEffect(() => {
@@ -190,10 +241,11 @@ export default function App({ session, settings, setSettings, quick, invite, onI
   }, [settings.autoLock, onLock]);
 
   // Avisa si el cambio hace cruzar el presupuesto del mes (o el aviso previo).
-  const checkBudget = (nextMovements, nextBudget = budget) => {
+  const sharedForBudget = (list) => (settings.countShared ? list : []);
+  const checkBudget = (nextMovements, nextBudget = budget, nextGroups = groups) => {
     const found = budgetAlert({
-      before: monthSpent(movements),
-      after: monthSpent(nextMovements),
+      before: monthSpent(movements, sharedForBudget(groups)),
+      after: monthSpent(nextMovements, sharedForBudget(nextGroups)),
       budgetBefore: budget,
       budgetAfter: nextBudget,
       settings,
@@ -219,8 +271,20 @@ export default function App({ session, settings, setSettings, quick, invite, onI
   };
   const closeAlert = useCallback(() => setAlert(null), []);
   const addCategory = (type, name) => setCategories((c) => ({ ...c, [type]: [...(c[type] ?? []), name] }));
+  // Renombrar un tipo propio también actualiza los movimientos que lo usan.
+  const renameCategory = (type, from, to) => {
+    if (categoryList(type, categories).some((c) => c.name.toLowerCase() === to.toLowerCase())) return;
+    setCategories((c) => ({ ...c, [type]: (c[type] ?? []).map((n) => (n === from ? to : n)) }));
+    setMovements((list) => list.map((m) => (m.type === type && m.category === from ? { ...m, category: to } : m)));
+  };
+  const deleteCategory = (type, name) => {
+    const fallback = type === 'income' ? 'Otros ingresos' : 'Otros';
+    setCategories((c) => ({ ...c, [type]: (c[type] ?? []).filter((n) => n !== name) }));
+    setMovements((list) => list.map((m) => (m.type === type && m.category === name ? { ...m, category: fallback } : m)));
+  };
 
   const closeEditor = useCallback(() => setEditing(null), []);
+  const closeGoals = useCallback(() => setGoalsOpen(false), []);
   const closeSettings = useCallback(() => {
     setSettingsOpen(false);
     setRecoveryReady(hasRecovery());
@@ -240,6 +304,7 @@ export default function App({ session, settings, setSettings, quick, invite, onI
     setCategories(data.categories);
     setBudget(data.budget);
     setGroups(data.groups);
+    setGoals(data.goals);
   };
   const resetAll = async () => {
     await store.clearDocuments();
@@ -248,12 +313,16 @@ export default function App({ session, settings, setSettings, quick, invite, onI
     setCategories(EMPTY_STATE.categories);
     setBudget(null);
     setGroups([]);
+    setGoals([]);
   };
 
   const views = {
     home: (
       <Home
         movements={movements}
+        groups={groups}
+        goals={goals}
+        onOpenGoals={() => setGoalsOpen(true)}
         notesCount={notes.length}
         currency={settings.currency}
         budget={budget}
@@ -266,7 +335,16 @@ export default function App({ session, settings, setSettings, quick, invite, onI
       />
     ),
     movements: (
-      <Movements movements={movements} currency={settings.currency} cursor={cursor} onCursor={changeCursor} onEdit={setEditing} />
+      <Movements
+        movements={movements}
+        groups={groups}
+        countShared={settings.countShared}
+        currency={settings.currency}
+        cursor={cursor}
+        onCursor={changeCursor}
+        onEdit={setEditing}
+        onOpenGroup={() => setTab('group')}
+      />
     ),
     calendar: (
       <CalendarView
@@ -405,19 +483,36 @@ export default function App({ session, settings, setSettings, quick, invite, onI
         />
       )}
 
+      {goalsOpen && (
+        <Sheet title="Metas de ahorro" onClose={closeGoals}>
+          <Goals
+            goals={goals}
+            currency={settings.currency}
+            onSave={(goal) => setGoals((list) => (list.some((g) => g.id === goal.id) ? list.map((g) => (g.id === goal.id ? goal : g)) : [...list, goal]))}
+            onDelete={(id) => setGoals((list) => list.filter((g) => g.id !== id))}
+          />
+        </Sheet>
+      )}
+
       {settingsOpen && (
         <Sheet title="Ajustes" onClose={closeSettings}>
           <Settings
             settings={settings}
             onChange={(patch) => setSettings((s) => ({ ...DEFAULT_SETTINGS, ...s, ...patch }))}
             onExport={async (password) => {
-              await exportBackup(store, { movements, notes, categories, budget, groups }, password);
+              await exportBackup(store, { movements, notes, categories, budget, groups, goals }, password);
               setSettings((s) => ({ ...DEFAULT_SETTINGS, ...s, lastBackupAt: Date.now(), backupSnoozeUntil: 0 }));
             }}
             initialPanel={settingsPanel}
+            categories={categories}
+            onRenameCategory={renameCategory}
+            onDeleteCategory={deleteCategory}
             persistence={persistence}
             onImport={importData}
             onReset={resetAll}
+            groups={groups}
+            onEnablePush={turnOnPush}
+            onDisablePush={turnOffPush}
             onLock={onLock}
           />
         </Sheet>

@@ -1,5 +1,6 @@
 // Ejecuta todas las pruebas de extremo a extremo:  npm test
 // Para incluir los gastos en común: SYNC_PG_URI=postgres://usuario:clave@host:puerto/db POSTGREST_BIN=/ruta/postgrest npm test
+// Y para los avisos con la app cerrada, además: DENO_BIN=/ruta/deno
 import { execSync, spawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -41,6 +42,10 @@ const summary = [];
 for (const file of suites) {
   if (file.startsWith('grupo') && !withSync) {
     summary.push(`⏭  ${file}: omitida (falta SYNC_PG_URI y POSTGREST_BIN)`);
+    continue;
+  }
+  if (file.startsWith('grupo-avisos') && !process.env.DENO_BIN) {
+    summary.push(`⏭  ${file}: omitida (falta DENO_BIN)`);
     continue;
   }
   console.log(`\n▶ ${file}`);
