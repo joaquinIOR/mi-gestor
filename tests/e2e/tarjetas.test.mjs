@@ -13,7 +13,7 @@ await p.getByRole('button',{name:'Crear código'}).click(); await skipRecovery(p
 await p.getByRole('navigation').getByRole('button',{name:'Calendario'}).click();
 // elegir el día 15
 await p.getByRole('button',{name:/15 de octubre/}).click();
-await p.getByRole('button',{name:'Pago de tarjeta'}).click();
+await p.getByRole('button',{name:'Pago de tarjeta',exact:true}).click();
 const dlg = p.getByRole('dialog',{name:'Pago de tarjeta'});
 ok(await dlg.isVisible(), 'abre "Pago de tarjeta" desde el calendario');
 ok((await dlg.locator('select').first().locator('option').allTextContents()).includes('CMR Falabella'), 'la lista incluye tarjetas chilenas (CMR Falabella)');
@@ -31,7 +31,7 @@ await p.waitForTimeout(200); await p.screenshot({ path: S+'/card-form.png' });
 await dlg.getByRole('button',{name:'Guardar'}).click();
 // otra tarjeta personalizada con días a elección
 await p.getByRole('button',{name:/25 de octubre/}).click();
-await p.getByRole('button',{name:'Pago de tarjeta'}).click();
+await p.getByRole('button',{name:'Pago de tarjeta',exact:true}).click();
 await dlg.getByPlaceholder('0').fill('40.000'); await dlg.locator('select').first().selectOption('__other');
 await dlg.getByPlaceholder(/Nombre de la tarjeta/).fill('Visa del trabajo');
 await dlg.locator('select').nth(1).selectOption('custom');
