@@ -432,3 +432,23 @@ textarea { resize: vertical; }
   animation: fade 0.2s ease-out; cursor: pointer;
 }
 .group-footer { justify-content: center; }
+
+/* Avisos en Inicio y código de recuperación */
+.notice {
+  display: grid; grid-template-columns: auto 1fr; gap: 6px 12px; align-items: start;
+  padding: 14px; margin-bottom: 14px; border-radius: var(--radius);
+  background: var(--primary-soft); color: var(--text);
+}
+.notice.warn { background: var(--warn-soft); }
+.notice > svg { color: var(--primary); margin-top: 2px; }
+.notice.warn > svg { color: var(--warn); }
+.notice-text p { color: var(--muted); font-size: 0.88rem; }
+.notice > .btn, .notice-actions { grid-column: 2; justify-self: start; }
+.notice-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+.recovery-title { font-size: 1.3rem; }
+.recovery-code {
+  display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; padding: 12px; border-radius: 14px;
+  background: var(--surface-2); border: 2px dashed var(--border); user-select: all;
+}
+.recovery-code code { font-size: 1.05rem; font-weight: 700; letter-spacing: 0.08em; text-align: center; padding: 6px 0; border-radius: 8px; background: var(--surface); }
+.recovery-input { font-family: ui-monospace, monospace; letter-spacing: 0.04em; text-transform: uppercase; }

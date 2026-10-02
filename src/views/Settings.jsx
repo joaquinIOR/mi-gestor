@@ -3,7 +3,9 @@ import { Bell, Download, Fingerprint, KeyRound, Lock, ShieldAlert, Smartphone, T
 import { biometricErrorMessage, biometricSupported, registerBiometric } from '../lib/biometric';
 import { allowBackgroundBriefly } from '../lib/autolock';
 import { isEncryptedBackup, MIN_BACKUP_PASSWORD, openBackup, readBackupFile } from '../lib/backup';
+import RecoveryCode from '../components/RecoveryCode';
 import { notificationsSupported } from '../lib/notify';
+import { isInstalled } from '../lib/persist';
 import { hideQuickAccess, showQuickAccess } from '../lib/quick';
 import { AUTO_LOCK_OPTIONS, CURRENCIES } from '../lib/settings';
 import { PALETTES } from '../lib/themes';
@@ -13,6 +15,8 @@ import {
   codeWarning,
   disableBiometric,
   enableBiometric,
+  enableRecovery,
+  hasRecovery,
   MIN_CODE_LENGTH,
   WIPE_AFTER_FAILURES,
   WrongCodeError,
@@ -98,6 +102,38 @@ function BiometricForm({ onDone }) {
       {error && <p className="error">{error}</p>}
       <button type="submit" className="btn primary" disabled={busy || !code}>
         <Fingerprint size={18} /> {busy ? 'Esperando al sensor…' : 'Activar huella / Face ID'}
+      </button>
+    </form>
+  );
+}
+
+function RecoveryForm({ onDone }) {
+  const [code, setCode] = useState('');
+  const [created, setCreated] = useState(null);
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  if (created) return <RecoveryCode code={created} onDone={() => onDone('Código de recuperación guardado. El anterior, si había uno, ya no sirve.')} />;
+
+  const submit = async (e) => {
+    e.preventDefault();
+    setBusy(true);
+    setError('');
+    try {
+      setCreated(await enableRecovery(code));
+    } catch (err) {
+      setError(err instanceof WrongCodeError ? 'El código no es correcto.' : 'No se pudo crear el código de recuperación.');
+      setBusy(false);
+    }
+  };
+
+  return (
+    <form className="subform" onSubmit={submit}>
+      <p className="hint">Confirma tu código actual para crear el código de recuperación.</p>
+      <input {...passwordProps} autoComplete="current-password" placeholder="Tu código" value={code} onChange={(e) => setCode(e.target.value)} autoFocus />
+      {error && <p className="error">{error}</p>}
+      <button type="submit" className="btn primary" disabled={busy || !code}>
+        {busy ? 'Creando…' : 'Crear código de recuperación'}
       </button>
     </form>
   );
@@ -197,10 +233,11 @@ function ImportForm({ onImport, onDone }) {
   );
 }
 
-export default function Settings({ settings, onChange, onExport, onImport, onReset, onLock }) {
+export default function Settings({ settings, onChange, onExport, onImport, onReset, onLock, initialPanel = null, persistence }) {
   const [permission, setPermission] = useState(() => (notificationsSupported() ? Notification.permission : 'unsupported'));
   const [installPrompt, setInstallPrompt] = useState(() => window.deferredInstallPrompt ?? null);
-  const [panel, setPanel] = useState(null);
+  const [panel, setPanel] = useState(initialPanel);
+  const [recoveryReady, setRecoveryReady] = useState(hasRecovery);
   const darkMode = settings.theme === 'dark' || (settings.theme === 'auto' && window.matchMedia('(prefers-color-scheme: dark)').matches);
   const [status, setStatus] = useState('');
   const [bioSupported, setBioSupported] = useState(null);
@@ -245,6 +282,7 @@ export default function Settings({ settings, onChange, onExport, onImport, onRes
     setPanel(null);
     setStatus(message);
     setBioEnabled(biometricInfo() !== null);
+    setRecoveryReady(hasRecovery());
   };
 
   return (
@@ -301,6 +339,30 @@ export default function Settings({ settings, onChange, onExport, onImport, onRes
             </>
           )}
         </div>
+        <div className="field">
+          <span>Código de recuperación</span>
+          <p className={`hint ${recoveryReady ? '' : 'warn-text'}`}>
+            {recoveryReady
+              ? '✅ Creado. Si olvidas tu código, en la pantalla de bloqueo toca «¿Olvidaste tu código?».'
+              : '⚠️ Aún no tienes. Sin él, si olvidas tu código pierdes tus datos personales.'}
+          </p>
+          {panel !== 'recovery' && (
+            <button type="button" className="btn" onClick={() => toggle('recovery')}>
+              <KeyRound size={18} /> {recoveryReady ? 'Crear uno nuevo' : 'Crear código de recuperación'}
+            </button>
+          )}
+          {panel === 'recovery' && <RecoveryForm onDone={done} />}
+        </div>
+        <div className="field">
+          <span>Protección contra borrado</span>
+          <p className="hint">
+            {persistence === 'granted'
+              ? '✅ Activa: el teléfono no borrará los datos de Mi Gestor para liberar espacio.'
+              : isInstalled()
+                ? 'El teléfono no la confirmó. Haz copias de seguridad de vez en cuando.'
+                : '⚠️ Instala Mi Gestor en la pantalla de inicio: así el teléfono no borrará tus datos (en iPhone, Safari los borra tras 7 días sin usar la web).'}
+          </p>
+        </div>
         <Toggle
           checked={settings.notificationDetails}
           onChange={(v) => onChange({ notificationDetails: v })}
@@ -337,6 +399,11 @@ export default function Settings({ settings, onChange, onExport, onImport, onRes
 
       <section className="settings-group">
         <h3 className="card-title">Copia de seguridad cifrada</h3>
+        <p className="hint">
+          {settings.lastBackupAt
+            ? `Última copia: ${new Date(settings.lastBackupAt).toLocaleDateString('es-CL', { day: 'numeric', month: 'long', year: 'numeric' })}.`
+            : 'Aún no has hecho ninguna copia.'}
+        </p>
         <p className="hint">Incluye movimientos, notas y documentos con fotos. Úsala para no perder nada o pasar tus datos a otro teléfono.</p>
         <div className="actions">
           <button type="button" className="btn grow" onClick={() => toggle('export')}>

@@ -17,4 +17,6 @@ export const DEFAULT_SETTINGS = {
   quickAccess: false,
   budgetAlert: true,
   budgetWarnAt: 0,
+  lastBackupAt: null,
+  backupSnoozeUntil: 0,
 };

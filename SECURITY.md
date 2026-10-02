@@ -50,9 +50,19 @@ Es lo único que sale del teléfono, y solo si creas o te unes a un grupo:
 
 Todo usa la Web Crypto API del navegador. Los datos personales no salen del teléfono, salvo en la copia de seguridad que tú descargas. Los gastos en común viajan cifrados (ver abajo).
 
+### Código de recuperación
+
+- Al crear el código se genera un **código de recuperación** de 32 caracteres (160 bits al azar) que cifra otra copia de la clave de datos (vía HKDF). Se muestra una sola vez y no se guarda en el teléfono.
+- Con él, desde «¿Olvidaste tu código?», se define un código nuevo sin perder datos. Sus intentos fallidos cuentan para la espera obligatoria.
+- Se puede crear o reemplazar desde Ajustes (el anterior deja de servir). Quien tenga **este código y tu teléfono** podría entrar: guárdalo como una contraseña.
+
+### Protección contra borrado
+
+La app pide al navegador almacenamiento persistente (`navigator.storage.persist`) para que el sistema no borre los datos al liberar espacio, recomienda instalarla (en iPhone, Safari borra los datos de webs no instaladas tras 7 días sin uso) y recuerda hacer una copia de seguridad cada 30 días.
+
 ## Límites (léelos)
 
-- **Si olvidas el código no hay recuperación.** Haz copias de seguridad cifradas y guarda su contraseña en un lugar seguro.
+- **Si olvidas el código y también el código de recuperación, no hay forma de recuperar los datos personales.** Haz copias de seguridad cifradas y guarda su contraseña en un lugar seguro.
 - Un código corto solo de números (por ejemplo, de 6 cifras) se puede adivinar con un ordenador si alguien **copia** los datos cifrados. Usa 8 o más caracteres con letras.
 - Si el teléfono tiene malware con control total mientras la app está **desbloqueada**, ninguna app web puede evitarlo. Mantén el sistema actualizado y el teléfono con bloqueo de pantalla.
 - Los avisos de recordatorio solo aparecen al abrir la app.

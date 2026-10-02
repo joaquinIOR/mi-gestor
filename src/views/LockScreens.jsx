@@ -1,13 +1,16 @@
 import { useEffect, useRef, useState } from 'react';
 import { Eye, EyeOff, Fingerprint, Lock, ShieldCheck } from 'lucide-react';
 import { biometricErrorMessage, readBiometricSecret } from '../lib/biometric';
+import RecoveryCode from '../components/RecoveryCode';
 import { openSession, wipeAllData } from '../lib/store';
 import {
   biometricInfo,
   codeWarning,
   createVault,
+  hasRecovery,
   getLockout,
   MIN_CODE_LENGTH,
+  recoverAccess,
   registerFailure,
   removeVault,
   resetFailures,
@@ -45,6 +48,7 @@ export function SetupScreen({ onReady }) {
   const [confirm, setConfirm] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const [created, setCreated] = useState(null);
   const warning = code.length >= MIN_CODE_LENGTH ? codeWarning(code) : '';
 
   const submit = async (e) => {
@@ -54,14 +58,24 @@ export function SetupScreen({ onReady }) {
     setBusy(true);
     setError('');
     try {
-      const key = await createVault(code);
+      const { key, recoveryCode } = await createVault(code);
       resetFailures();
-      onReady(await openSession(key));
+      setCreated({ session: await openSession(key), recoveryCode });
     } catch {
       setError('No se pudo proteger la app en este navegador.');
       setBusy(false);
     }
   };
+
+  if (created) {
+    return (
+      <div className="lock-screen">
+        <div className="lock-card">
+          <RecoveryCode code={created.recoveryCode} onDone={() => onReady(created.session)} />
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="lock-screen">
@@ -78,7 +92,7 @@ export function SetupScreen({ onReady }) {
         <CodeInput value={confirm} onChange={setConfirm} placeholder="Repite el código" autoComplete="new-password" />
         {warning && <p className="hint warn-text">{warning}</p>}
         <p className="hint">
-          ⚠️ Si olvidas el código <b>no hay forma de recuperar los datos</b>. Guarda una copia de seguridad cifrada desde Ajustes.
+          Después te daremos un <b>código de recuperación</b> por si algún día olvidas este.
         </p>
         {error && <p className="error">{error}</p>}
         <button type="submit" className="btn primary" disabled={busy}>
@@ -147,6 +161,8 @@ export function LockScreen({ wipeOnFailures, quickType, invited, onUnlock, onWip
     return () => controller.abort();
   }, [hasBiometric, onUnlock]);
 
+  const [recovering, setRecovering] = useState(false);
+  const [canRecover] = useState(hasRecovery);
   const wait = Math.max(0, Math.ceil((lockout.until - now) / 1000));
   const remaining = WIPE_AFTER_FAILURES - lockout.failures;
 
@@ -176,6 +192,20 @@ export function LockScreen({ wipeOnFailures, quickType, invited, onUnlock, onWip
       setError('Código incorrecto.');
     }
   };
+
+  if (recovering) {
+    return (
+      <RecoverForm
+        wait={wait}
+        onCancel={() => setRecovering(false)}
+        onFailure={() => {
+          setLockout(registerFailure());
+          setNow(Date.now());
+        }}
+        onUnlock={onUnlock}
+      />
+    );
+  }
 
   return (
     <div className="lock-screen">
@@ -207,6 +237,11 @@ export function LockScreen({ wipeOnFailures, quickType, invited, onUnlock, onWip
         <button type="submit" className={`btn ${hasBiometric ? '' : 'primary'}`} disabled={busy || wait > 0}>
           {busy ? 'Abriendo…' : 'Desbloquear'}
         </button>
+        {canRecover && (
+          <button type="button" className="btn ghost small" onClick={() => setRecovering(true)}>
+            ¿Olvidaste tu código?
+          </button>
+        )}
       </form>
     </div>
   );
@@ -224,6 +259,65 @@ export function UnsupportedScreen() {
           Para cifrar tus datos, Mi Gestor debe abrirse desde una dirección <b>https://</b> (por ejemplo, la de GitHub Pages).
         </p>
       </div>
+    </div>
+  );
+}
+
+function RecoverForm({ wait, onCancel, onFailure, onUnlock }) {
+  const [recovery, setRecovery] = useState('');
+  const [code, setCode] = useState('');
+  const [confirm, setConfirm] = useState('');
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  const submit = async (e) => {
+    e.preventDefault();
+    if (wait > 0 || busy) return;
+    if (code.length < MIN_CODE_LENGTH) return setError(`El código nuevo debe tener al menos ${MIN_CODE_LENGTH} caracteres.`);
+    if (code !== confirm) return setError('Los códigos nuevos no coinciden.');
+    setBusy(true);
+    setError('');
+    try {
+      const key = await recoverAccess(recovery, code);
+      resetFailures();
+      onUnlock(await openSession(key));
+    } catch (err) {
+      setBusy(false);
+      if (err instanceof WrongCodeError) onFailure();
+      setError(err.message || 'No se pudo recuperar el acceso.');
+    }
+  };
+
+  return (
+    <div className="lock-screen">
+      <form className="lock-card" onSubmit={submit}>
+        <span className="lock-icon">
+          <ShieldCheck size={32} />
+        </span>
+        <h1>Recuperar acceso</h1>
+        <p className="muted">Escribe tu código de recuperación (32 caracteres) y elige un código nuevo. No perderás ningún dato.</p>
+        <input
+          className="recovery-input"
+          placeholder="XXXX-XXXX-XXXX-XXXX-XXXX-XXXX-XXXX-XXXX"
+          autoCapitalize="characters"
+          autoCorrect="off"
+          spellCheck={false}
+          autoComplete="off"
+          value={recovery}
+          onChange={(e) => setRecovery(e.target.value)}
+          autoFocus
+        />
+        <CodeInput value={code} onChange={setCode} placeholder={`Código nuevo (mínimo ${MIN_CODE_LENGTH})`} autoComplete="new-password" />
+        <CodeInput value={confirm} onChange={setConfirm} placeholder="Repite el código nuevo" autoComplete="new-password" />
+        {error && <p className="error">{error}</p>}
+        {wait > 0 && <p className="hint warn-text">Demasiados intentos. Espera {wait} s.</p>}
+        <button type="submit" className="btn primary" disabled={busy || wait > 0}>
+          {busy ? 'Recuperando…' : 'Recuperar y entrar'}
+        </button>
+        <button type="button" className="btn ghost small" onClick={onCancel}>
+          Volver
+        </button>
+      </form>
     </div>
   );
 }

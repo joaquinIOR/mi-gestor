@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ArrowLeftRight, CalendarDays, House, IdCard, Lock, Plus, Settings as SettingsIcon, StickyNote, Users } from 'lucide-react';
+import { ArrowLeftRight, CalendarDays, HardDriveDownload, House, IdCard, KeyRound, Lock, Plus, Settings as SettingsIcon, StickyNote, Users } from 'lucide-react';
 import BudgetAlert from './components/BudgetAlert';
 import MovementForm from './components/MovementForm';
 import Sheet from './components/Sheet';
@@ -8,6 +8,8 @@ import { exportBackup } from './lib/backup';
 import { budgetAlert, monthSpent } from './lib/budget';
 import { formatMoney } from './lib/format';
 import { notifyDueReminders } from './lib/notify';
+import { backupDue, requestPersistence, snoozeUntil } from './lib/persist';
+import { hasRecovery } from './lib/vault';
 import { applySync, syncGroup, upsertLocal } from './lib/shared';
 import { DEFAULT_SETTINGS } from './lib/settings';
 import { EMPTY_STATE } from './lib/store';
@@ -48,7 +50,16 @@ export default function App({ session, settings, setSettings, quick, invite, onI
   });
   const [editing, setEditing] = useState(() => (quick ? { type: quick.type, express: true } : null));
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [settingsPanel, setSettingsPanel] = useState(null);
   const [alert, setAlert] = useState(null);
+  const [persistence, setPersistence] = useState(null);
+  const [recoveryReady, setRecoveryReady] = useState(hasRecovery);
+  const [now] = useState(() => Date.now());
+
+  // Pide al teléfono que no borre los datos de la app.
+  useEffect(() => {
+    requestPersistence().then(setPersistence);
+  }, []);
   // Abre el formulario rápido si llega una petición mientras la app está desbloqueada.
   const [seenQuick, setSeenQuick] = useState(quick);
   if (quick && quick !== seenQuick) {
@@ -210,7 +221,15 @@ export default function App({ session, settings, setSettings, quick, invite, onI
   const addCategory = (type, name) => setCategories((c) => ({ ...c, [type]: [...(c[type] ?? []), name] }));
 
   const closeEditor = useCallback(() => setEditing(null), []);
-  const closeSettings = useCallback(() => setSettingsOpen(false), []);
+  const closeSettings = useCallback(() => {
+    setSettingsOpen(false);
+    setRecoveryReady(hasRecovery());
+  }, []);
+  const openSettings = (panel = null) => {
+    setSettingsPanel(panel);
+    setSettingsOpen(true);
+  };
+  const backup = backupDue(settings, now, movements.length + notes.length >= 3);
   const changeCursor = (y, m) => setCursor({ y, m });
 
   const importData = async (data) => {
@@ -289,13 +308,43 @@ export default function App({ session, settings, setSettings, quick, invite, onI
           <button type="button" className="icon-btn" onClick={onLock} aria-label="Bloquear">
             <Lock size={20} />
           </button>
-          <button type="button" className="icon-btn" onClick={() => setSettingsOpen(true)} aria-label="Ajustes">
+          <button type="button" className="icon-btn" onClick={() => openSettings()} aria-label="Ajustes">
             <SettingsIcon size={22} />
           </button>
         </div>
       </header>
 
       {saveError && <p className="error banner">No se pudieron guardar los últimos cambios. Revisa el espacio del teléfono.</p>}
+
+      {tab === 'home' && !recoveryReady && (
+        <div className="notice warn">
+          <KeyRound size={22} />
+          <div className="notice-text">
+            <b>Crea tu código de recuperación</b>
+            <p>Si olvidas tu código, es la única forma de no perder tus datos.</p>
+          </div>
+          <button type="button" className="btn small primary" onClick={() => openSettings('recovery')}>
+            Crear
+          </button>
+        </div>
+      )}
+      {tab === 'home' && backup && (
+        <div className="notice">
+          <HardDriveDownload size={22} />
+          <div className="notice-text">
+            <b>Haz una copia de seguridad</b>
+            <p>{backup.never ? 'Aún no tienes ninguna copia.' : `Tu última copia fue hace ${backup.days} días.`}</p>
+          </div>
+          <div className="notice-actions">
+            <button type="button" className="btn small primary" onClick={() => openSettings('export')}>
+              Hacer copia
+            </button>
+            <button type="button" className="btn small ghost" onClick={() => setSettings((s) => ({ ...DEFAULT_SETTINGS, ...s, backupSnoozeUntil: snoozeUntil(Date.now()) }))}>
+              Más tarde
+            </button>
+          </div>
+        </div>
+      )}
 
       <main className="content">{views[tab]}</main>
 
@@ -361,7 +410,12 @@ export default function App({ session, settings, setSettings, quick, invite, onI
           <Settings
             settings={settings}
             onChange={(patch) => setSettings((s) => ({ ...DEFAULT_SETTINGS, ...s, ...patch }))}
-            onExport={(password) => exportBackup(store, { movements, notes, categories, budget, groups }, password)}
+            onExport={async (password) => {
+              await exportBackup(store, { movements, notes, categories, budget, groups }, password);
+              setSettings((s) => ({ ...DEFAULT_SETTINGS, ...s, lastBackupAt: Date.now(), backupSnoozeUntil: 0 }));
+            }}
+            initialPanel={settingsPanel}
+            persistence={persistence}
             onImport={importData}
             onReset={resetAll}
             onLock={onLock}

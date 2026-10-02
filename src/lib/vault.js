@@ -27,8 +27,16 @@ const writeVault = (vault) => localStorage.setItem(VAULT_KEY, JSON.stringify(vau
 async function storeDataKey(dataKey, code) {
   const salt = randomBytes(16);
   const wrapped = await wrapDataKey(dataKey, await deriveKey(code, salt));
-  const biometric = readVault()?.biometric;
-  writeVault({ v: 1, salt: toBase64(salt), iterations: KDF_ITERATIONS, ...wrapped, ...(biometric ? { biometric } : {}) });
+  // Conserva la huella y el código de recuperación: ambos protegen la misma clave de datos.
+  const { biometric, recovery } = readVault() ?? {};
+  writeVault({
+    v: 1,
+    salt: toBase64(salt),
+    iterations: KDF_ITERATIONS,
+    ...wrapped,
+    ...(biometric ? { biometric } : {}),
+    ...(recovery ? { recovery } : {}),
+  });
 }
 
 async function openDataKey(code, extractable = false) {
@@ -42,9 +50,12 @@ async function openDataKey(code, extractable = false) {
   }
 }
 
+// Crea la bóveda y su código de recuperación (se muestra una sola vez).
 export async function createVault(code) {
-  await storeDataKey(await generateDataKey(), code);
-  return openDataKey(code);
+  const dataKey = await generateDataKey();
+  await storeDataKey(dataKey, code);
+  const recoveryCode = await storeRecovery(dataKey);
+  return { key: await openDataKey(code), recoveryCode };
 }
 
 export const unlockVault = (code) => openDataKey(code);
@@ -55,6 +66,45 @@ export async function changeCode(current, next) {
 }
 
 export const removeVault = () => localStorage.removeItem(VAULT_KEY);
+
+// --- Código de recuperación ---
+// 32 caracteres al azar (160 bits) que también abren la clave de datos. Sirve si se olvida el código:
+// con él se crea uno nuevo sin perder nada. Se muestra una sola vez y nunca se guarda en claro.
+const RECOVERY_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+const RECOVERY_PURPOSE = 'mi-gestor/recovery/v1';
+
+export const normalizeRecoveryCode = (text) => String(text ?? '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+const recoveryKey = (code) => deriveKeyFromSecret(new TextEncoder().encode(normalizeRecoveryCode(code)), RECOVERY_PURPOSE);
+
+async function storeRecovery(dataKey) {
+  const chars = Array.from(randomBytes(32), (b) => RECOVERY_ALPHABET[b % 32]).join('');
+  const code = chars.match(/.{4}/g).join('-');
+  const wrapped = await wrapDataKey(dataKey, await recoveryKey(code));
+  writeVault({ ...readVault(), recovery: wrapped });
+  return code;
+}
+
+export const hasRecovery = () => !!readVault()?.recovery;
+
+// Crea (o reemplaza) el código de recuperación de una bóveda existente.
+export async function enableRecovery(code) {
+  return storeRecovery(await openDataKey(code, true));
+}
+
+// Con el código de recuperación se define un código nuevo; los datos no cambian.
+export async function recoverAccess(recoveryCode, newCode) {
+  const info = readVault()?.recovery;
+  if (!info) throw new Error('No hay código de recuperación.');
+  if (normalizeRecoveryCode(recoveryCode).length !== 32) throw new WrongCodeError('El código de recuperación tiene 32 caracteres.');
+  let dataKey;
+  try {
+    dataKey = await unwrapDataKey(info, await recoveryKey(recoveryCode), true);
+  } catch {
+    throw new WrongCodeError('Código de recuperación incorrecto.');
+  }
+  await storeDataKey(dataKey, newCode);
+  return openDataKey(newCode);
+}
 
 // --- Huella / Face ID ---
 // La clave de datos se cifra una segunda vez con un secreto que solo entrega el sensor biométrico

@@ -23,13 +23,12 @@ Funciona como una app instalada (icono propio, pantalla completa) y **sin conexi
 
 ## 📲 Instalar en el teléfono
 
-1. En GitHub: **Settings → Pages → Source: GitHub Actions**.
-2. Sube los cambios a `main`. El workflow *Deploy to GitHub Pages* publica la app en `https://<tu-usuario>.github.io/<nombre-del-repo>/`.
-3. Abre esa dirección en el teléfono:
+1. La app compilada se publica en la rama `gh-pages` (Settings → Pages → *Deploy from a branch* → `gh-pages`), en `https://<tu-usuario>.github.io/<nombre-del-repo>/`.
+2. Abre esa dirección en el teléfono:
    - **Android (Chrome):** menú ⋮ → **Instalar aplicación**.
    - **iPhone (Safari):** botón Compartir → **Añadir a pantalla de inicio**.
 
-> Haz de vez en cuando una **copia de seguridad cifrada** (Ajustes → Exportar). Si olvidas tu código, borras los datos del navegador o cambias de teléfono, con ella lo recuperas todo.
+> Al crear tu código recibirás un **código de recuperación**: guárdalo, sirve si olvidas tu código. Haz también de vez en cuando una **copia de seguridad cifrada** (Ajustes → Exportar). Si olvidas tu código, borras los datos del navegador o cambias de teléfono, con ella lo recuperas todo.
 
 ## 🛠️ Desarrollo
 
@@ -38,7 +37,13 @@ npm install
 npm run dev      # abre en el PC y, en la misma Wi-Fi, en el teléfono con la URL "Network"
 npm run lint
 npm run build
+npm test         # pruebas de extremo a extremo en un teléfono simulado (Playwright)
 ```
+
+Las pruebas (`tests/e2e`) compilan la app, la abren en Chromium con tamaño de teléfono y revisan seguridad, cifrado,
+huella, presupuesto, alertas, temas, tarjetas, recuperación y gastos en común. La de gastos en común necesita
+PostgreSQL y PostgREST: `SYNC_PG_URI=postgres://… POSTGREST_BIN=/ruta/postgrest npm test` (si faltan, se omite).
+En GitHub: **Actions → Pruebas → Run workflow**.
 
 ### Servidor para gastos en común (opcional)
 

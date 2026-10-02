@@ -1,0 +1,43 @@
+name: Pruebas
+
+# Se ejecuta a mano (Actions → Pruebas → Run workflow). La app se publica desde la rama gh-pages.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  pruebas:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run lint
+      - run: npx playwright install --with-deps chromium
+      - name: Descargar PostgREST (mismo motor que usa Supabase)
+        run: |
+          curl -sSL -o pgrst.tar.xz https://github.com/PostgREST/postgrest/releases/download/v12.2.3/postgrest-v12.2.3-linux-static-x64.tar.xz
+          tar xf pgrst.tar.xz
+      - run: npm test
+        env:
+          SYNC_PG_URI: postgres://postgres:postgres@localhost:5432/postgres
+          POSTGREST_BIN: ./postgrest
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: capturas
+          path: tests/e2e/.artifacts
