@@ -167,12 +167,16 @@ await fetch(`${SERVER}/functions/v1/mg-push`, { method: 'POST', headers: { apike
 ok(sql("select count(*) from push_subscriptions where endpoint like '%/gone/%'") === '0', 'los teléfonos que ya no aceptan avisos se borran');
 
 // El teléfono muestra el aviso aunque la app no lo esté mirando (evento push del service worker)
+// (se entrega al service worker ya activado; se escucha antes de activar el dominio para no perder el evento)
 const cdp = await A.context().newCDPSession(A);
-await cdp.send('ServiceWorker.enable');
-const regId = await new Promise((resolve) => {
-  cdp.on('ServiceWorker.workerRegistrationUpdated', ({ registrations }) => registrations[0] && resolve(registrations[0].registrationId));
+const regId = new Promise((resolve) => {
+  cdp.on('ServiceWorker.workerVersionUpdated', ({ versions }) => {
+    const active = versions.find((v) => v.status === 'activated' && v.scriptURL.startsWith(ORIGIN));
+    if (active) resolve(active.registrationId);
+  });
 });
-await cdp.send('ServiceWorker.deliverPushMessage', { origin: ORIGIN, registrationId: regId, data: JSON.stringify({ title: 'Mi Gestor', body: 'Hay novedades en un grupo compartido.', tag: 'mi-gestor-grupo' }) });
+await cdp.send('ServiceWorker.enable');
+await cdp.send('ServiceWorker.deliverPushMessage', { origin: ORIGIN, registrationId: await regId, data: JSON.stringify({ title: 'Mi Gestor', body: 'Hay novedades en un grupo compartido.', tag: 'mi-gestor-grupo' }) });
 const shown = await waitFor(async () => (await A.evaluate(async () => (await (await navigator.serviceWorker.getRegistration()).getNotifications({ tag: 'mi-gestor-grupo' })).map((n) => n.body)))[0]);
 ok(shown === 'Hay novedades en un grupo compartido.', 'el teléfono muestra el aviso genérico');
 
