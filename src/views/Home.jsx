@@ -1,8 +1,9 @@
 import { useMemo, useState } from 'react';
-import { Bell, ChevronRight, CircleHelp, IdCard, Pencil, StickyNote, TrendingDown, TrendingUp, Wallet } from 'lucide-react';
+import { Bell, ChevronRight, CircleHelp, IdCard, Pencil, Share2, StickyNote, TrendingDown, TrendingUp, Wallet } from 'lucide-react';
 import BudgetBar from '../components/BudgetBar';
 import { GoalsCard } from '../components/Goals';
 import MovementRow from '../components/MovementRow';
+import ShareApp from '../components/ShareApp';
 import Sheet from '../components/Sheet';
 import WalletForm from '../components/WalletForm';
 import { cashSummary, isDone, pendingConfirmations, walletQuestions } from '../lib/cash';
@@ -97,6 +98,7 @@ export default function Home({ movements, groups, goals, onOpenGoals, notesCount
 
   const month = MONTHS[m].toLowerCase();
   const [walletOpen, setWalletOpen] = useState(false);
+  const [shareOpen, setShareOpen] = useState(false);
 
   const countShared = settings.countShared;
   const monthItems = useMemo(
@@ -281,6 +283,23 @@ export default function Home({ movements, groups, goals, onOpenGoals, notesCount
           <p className="empty">Nada próximo. Activa un recordatorio al crear un gasto o ingreso.</p>
         )}
       </section>
+
+      <button type="button" className="card link-card" onClick={() => setShareOpen(true)}>
+        <span className="link-icon share">
+          <Share2 size={22} />
+        </span>
+        <span className="row-main">
+          <span className="row-title">Compartir Mi Gestor</span>
+          <span className="row-sub">Envía el enlace para que alguien más la pruebe</span>
+        </span>
+        <ChevronRight size={20} className="muted" />
+      </button>
+
+      {shareOpen && (
+        <Sheet title="Compartir Mi Gestor" onClose={() => setShareOpen(false)} guard={false}>
+          <ShareApp />
+        </Sheet>
+      )}
 
       {walletOpen && (
         <Sheet title={wallet ? 'Ajustar saldo' : '¿Cuánto tienes hoy?'} onClose={() => setWalletOpen(false)}>

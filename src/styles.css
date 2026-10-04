@@ -183,6 +183,13 @@ h1, h2, h3, p { margin: 0; }
 .link-icon { width: 44px; height: 44px; border-radius: 14px; display: grid; place-items: center; flex: none; }
 .link-icon.docs { background: var(--primary-soft); color: var(--primary); }
 .link-icon.notes { background: var(--warn-soft); color: var(--warn); }
+.link-icon.share { background: var(--income-soft); color: var(--income); }
+
+/* Compartir Mi Gestor */
+/* (más específico que la regla general de los campos; 16 px como mínimo para que iPhone no haga zoom) */
+.share-app input.share-link { padding: 10px 12px; font-size: max(16px, 0.9rem); }
+.share-actions { display: flex; flex-direction: column; gap: 8px; }
+.share-app .qr-wrap { gap: 6px; text-align: center; }
 
 /* Filas de movimientos */
 .list { display: flex; flex-direction: column; }

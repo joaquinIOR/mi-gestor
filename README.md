@@ -29,6 +29,7 @@ Funciona como una app instalada (icono propio, pantalla completa) y **sin conexi
   - **Lista de compras compartida:** agrega, marca y borra productos (con «Deshacer»); «Registrar compra» toma lo que marcaste tú.
   - Si cambias de teléfono, al abrir la invitación puedes **retomar tu perfil** («¿Ya eras parte? Toca tu nombre») en vez de quedar dos veces. Se puede **quitar a un integrante** (tocando su nombre) y **salir** del grupo sin dejar «fantasmas».
   - Si dos teléfonos cambian lo mismo (por ejemplo, uno sin señal), gana el cambio más reciente y un borrado es definitivo.
+- **Compartir Mi Gestor:** en Inicio (al final) y en Ajustes, un botón envía el enlace de la app por WhatsApp u otra app, lo copia o muestra un código QR para que otra persona la pruebe. Solo viaja el enlace: quien lo abre empieza con su app vacía y nunca ve tus datos.
 - **Avisos con la app cerrada (opcional):** recordatorios, preguntas del saldo («¿Ya te llegó?», a las 20:00), cuentas de la casa y novedades del grupo llegan como notificación aunque la app esté cerrada. Los avisos son genéricos («Tienes un pago por vencer o un movimiento por confirmar»): nunca muestran montos ni nombres.
 - **Temas de color:** Menta, Rosa pastel, Lavanda, Celeste pastel, Cielo, Durazno, Salvia, Coral, Índigo y Grafito, cada uno en modo claro y oscuro (contraste verificado).
 - **Ajustes:** moneda, tema de color, modo claro/oscuro, **tamaño de letra** (normal, grande, muy grande), renombrar o borrar tus tipos de gasto e ingreso, copia de seguridad **cifrada** (exportar/importar, con tus preferencias; al restaurar se muestra qué trae y de qué fecha es) y borrar datos.
@@ -55,7 +56,7 @@ npm test         # pruebas de extremo a extremo en un teléfono simulado (Playwr
 ```
 
 Las pruebas (`tests/e2e`) compilan la app, la abren en Chromium con tamaño de teléfono y revisan seguridad, cifrado,
-huella, saldo real, presupuesto, alertas, temas, tarjetas, recuperación, resumen, metas, montos y fechas, datos y copias, uso sin
+huella, saldo real, compartir la app, presupuesto, alertas, temas, tarjetas, recuperación, resumen, metas, montos y fechas, datos y copias, uso sin
 conexión y botón Atrás, gastos en común (integrantes, conflictos, cuentas de la casa) y avisos. Las de gastos en
 común necesitan PostgreSQL y PostgREST, y la de avisos además Deno:
 `SYNC_PG_URI=postgres://… POSTGREST_BIN=/ruta/postgrest DENO_BIN=/ruta/deno npm test` (si faltan, se omiten).

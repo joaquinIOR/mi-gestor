@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
-import { Bell, Check, Copy, Download, Fingerprint, KeyRound, Lock, ShieldAlert, Smartphone, Tags, Trash2, Upload, Zap } from 'lucide-react';
+import { Bell, Check, Copy, Download, Fingerprint, KeyRound, Lock, Share2, ShieldAlert, Smartphone, Tags, Trash2, Upload, Zap } from 'lucide-react';
 import { biometricErrorMessage, biometricSupported, readBiometricSecret, registerBiometric } from '../lib/biometric';
 import { allowBackgroundBriefly, endBackgroundAllowance } from '../lib/autolock';
 import { isEncryptedBackup, MIN_BACKUP_PASSWORD, openBackup, readBackupFile } from '../lib/backup';
 import RecoveryCode from '../components/RecoveryCode';
+import ShareApp from '../components/ShareApp';
 import pushSql from '../../supabase/push.sql?raw';
 import pushFunction from '../../supabase/functions/mg-push/index.ts?raw';
 import { pushSupported } from '../lib/push';
@@ -786,6 +787,13 @@ export default function Settings({ settings, onChange, onExport, onBackupSaved, 
             </p>
           )}
         </div>
+      </section>
+
+      <section className="settings-group" id="settings-share">
+        <h3 className="card-title">
+          <Share2 size={18} /> Compartir Mi Gestor
+        </h3>
+        <ShareApp />
       </section>
 
       <button
