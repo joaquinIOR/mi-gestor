@@ -1,8 +1,8 @@
 // Service worker: permite instalar la app y usarla sin conexión.
 // Se genera al compilar (vite.config.js): VERSION cambia con cada publicación y PRECACHE trae la lista
 // exacta de archivos de esa versión, así la app completa queda guardada en el teléfono desde la primera visita.
-const VERSION = '772d341965b0';
-const PRECACHE = ["./","manifest.webmanifest","icons/apple-touch-icon.png","icons/badge-96.png","icons/icon-192.png","icons/icon-512.png","icons/icon.svg","icons/maskable-512.png","icons/shortcut-expense-96.png","icons/shortcut-income-96.png","assets/index-CC-4U8BI.css","assets/index-C8Diw0_O.js"];
+const VERSION = 'a943160033e9';
+const PRECACHE = ["./","manifest.webmanifest","icons/apple-touch-icon.png","icons/badge-96.png","icons/icon-192.png","icons/icon-512.png","icons/icon.svg","icons/maskable-512.png","icons/shortcut-expense-96.png","icons/shortcut-income-96.png","assets/index-LI6Y9Iul.css","assets/index-CDPQFLLu.js"];
 const CACHE = `mi-gestor-${VERSION}`;
 
 self.addEventListener('install', (event) => {
@@ -62,7 +62,7 @@ self.addEventListener('notificationclick', (event) => {
 // lograra enviar un aviso, no puede hacerlo pasar por Mi Gestor con un texto propio.
 const PUSH_TEXTS = {
   'mi-gestor-grupo': 'Hay novedades en un grupo compartido.',
-  'mi-gestor-recordatorio': 'Tienes un pago o una cuenta por vencer. Abre Mi Gestor para ver el detalle.',
+  'mi-gestor-recordatorio': 'Tienes un pago por vencer o un movimiento por confirmar. Abre Mi Gestor para ver el detalle.',
 };
 self.addEventListener('push', (event) => {
   let data = {};
