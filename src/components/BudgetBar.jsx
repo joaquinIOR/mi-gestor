@@ -82,15 +82,18 @@ function BudgetForm({ budget, income, currency, settings, onSettings, onSave, on
 }
 
 // Barra de progreso del mes: el tope es el 100 % y cada tipo de gasto suma un tramo de su color.
-export default function BudgetBar({ expenses, income, budget, monthLabel, currency, onSetBudget, settings, onSettings }) {
+// Lo gastado hasta hoy va en colores; lo programado para lo que queda del mes, en un tramo rayado aparte.
+export default function BudgetBar({ expenses, scheduled = 0, income, budget, monthLabel, currency, onSetBudget, settings, onSettings }) {
   const [editing, setEditing] = useState(false);
   const [selected, setSelected] = useState(null);
 
   const spent = expenses.reduce((sum, [, amount]) => sum + amount, 0);
+  const total = spent + scheduled;
   // Si te pasas del tope, la barra se reescala al gasto total y una marca indica dónde estaba el tope.
-  const scale = Math.max(budget ?? 0, spent) || 1;
+  const scale = Math.max(budget ?? 0, total) || 1;
   const reference = budget ?? spent;
   const over = budget ? spent - budget : 0;
+  const overPlanned = budget ? total - budget : 0;
 
   // Orden fijo por color (no por monto), para que cada tipo esté siempre en el mismo sitio.
   const legend = [...expenses].sort((a, b) => (categorySlot(a[0]) || 99) - (categorySlot(b[0]) || 99) || b[1] - a[1]);
@@ -98,6 +101,7 @@ export default function BudgetBar({ expenses, income, budget, monthLabel, curren
   const segments = [
     ...legend.filter(([name]) => categorySlot(name)).map(([name, amount]) => ({ key: name, label: name, amount, color: categoryColor(name) })),
     ...(otherTotal ? [{ key: '__other', label: 'Otros', amount: otherTotal, color: 'var(--cat-other)' }] : []),
+    ...(scheduled > 0 ? [{ key: '__planned', label: 'Programado', amount: scheduled, planned: true }] : []),
   ];
   const isSelected = (name) => selected === name || (selected === '__other' && !categorySlot(name));
   const selectedSegment = segments.find((s) => s.key === selected);
@@ -111,6 +115,7 @@ export default function BudgetBar({ expenses, income, budget, monthLabel, curren
             <strong>{formatMoney(spent, currency)}</strong>
             {budget ? <span className="muted"> de {formatMoney(budget, currency)}</span> : null}
           </p>
+          {scheduled > 0 && <p className="hint">+ {formatMoney(scheduled, currency)} programado para lo que queda del mes</p>}
         </div>
         <button type="button" className="icon-btn" onClick={() => setEditing((v) => !v)} aria-label={budget ? 'Cambiar tope' : 'Definir tope'}>
           <Pencil size={18} />
@@ -141,16 +146,21 @@ export default function BudgetBar({ expenses, income, budget, monthLabel, curren
           <button
             type="button"
             key={s.key}
-            className={`budget-seg ${selected && selected !== s.key ? 'dim' : ''}`}
-            style={{ width: `${(s.amount / scale) * 100}%`, background: s.color }}
+            className={`budget-seg${s.planned ? ' planned' : ''}${selected && selected !== s.key ? ' dim' : ''}`}
+            style={{ width: `${(s.amount / scale) * 100}%`, ...(s.planned ? {} : { background: s.color }) }}
             onClick={() => setSelected((cur) => (cur === s.key ? null : s.key))}
             aria-label={`${s.label}: ${formatMoney(s.amount, currency)}`}
           />
         ))}
-        {over > 0 && <span className="budget-limit" style={{ left: `${(budget / scale) * 100}%` }} aria-hidden="true" />}
+        {overPlanned > 0 && <span className="budget-limit" style={{ left: `${(budget / scale) * 100}%` }} aria-hidden="true" />}
       </div>
 
-      {selectedSegment ? (
+      {selectedSegment?.planned ? (
+        <p className="budget-detail">
+          <i className="dot-lg planned" /> Programado para lo que queda del mes: <b>{formatMoney(scheduled, currency)}</b>
+          {budget ? ` · ${percent((scheduled / budget) * 100)} del tope` : ''}
+        </p>
+      ) : selectedSegment ? (
         <p className="budget-detail">
           <i className="dot-lg" style={{ background: selectedSegment.color }} /> {selectedSegment.label}: <b>{formatMoney(selectedSegment.amount, currency)}</b> ·{' '}
           {percent((selectedSegment.amount / reference) * 100)} {budget ? 'del tope' : 'del gasto'}
@@ -160,9 +170,14 @@ export default function BudgetBar({ expenses, income, budget, monthLabel, curren
           <p className="budget-status over">
             <AlertTriangle size={16} /> Te pasaste por <b>{formatMoney(over, currency)}</b> ({percent((spent / budget) * 100)} del tope)
           </p>
+        ) : overPlanned > 0 ? (
+          <p className="budget-status over">
+            <AlertTriangle size={16} /> Usado {percent((spent / budget) * 100)}; con lo programado te pasarías por <b>{formatMoney(overPlanned, currency)}</b>
+          </p>
         ) : (
           <p className="budget-status">
-            Disponible: <b>{formatMoney(budget - spent, currency)}</b> · usado {percent((spent / budget) * 100)}
+            Disponible: <b>{formatMoney(budget - total, currency)}</b>
+            {scheduled > 0 && ' descontando lo programado'} · usado {percent((spent / budget) * 100)}
           </p>
         )
       ) : (
@@ -171,7 +186,7 @@ export default function BudgetBar({ expenses, income, budget, monthLabel, curren
         </button>
       )}
 
-      {legend.length ? (
+      {legend.length || scheduled > 0 ? (
         <ul className="budget-legend">
           {legend.map(([name, amount]) => (
             <li key={name}>
@@ -192,6 +207,20 @@ export default function BudgetBar({ expenses, income, budget, monthLabel, curren
               </button>
             </li>
           ))}
+          {scheduled > 0 && (
+            <li>
+              <button
+                type="button"
+                className={`legend-row ${selected && selected !== '__planned' ? 'dim' : ''}`}
+                onClick={() => setSelected((cur) => (cur === '__planned' ? null : '__planned'))}
+              >
+                <i className="dot-lg planned" />
+                <span className="legend-name">🗓️ Programado</span>
+                <span className="legend-amount">{formatMoney(scheduled, currency)}</span>
+                <span className="legend-pct">{budget ? percent((scheduled / budget) * 100) : ''}</span>
+              </button>
+            </li>
+          )}
         </ul>
       ) : (
         <p className="empty">Aún no hay gastos este mes.</p>

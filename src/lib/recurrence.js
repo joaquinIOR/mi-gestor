@@ -31,7 +31,23 @@ export function reminderLabel(days) {
 export const frequencyLabel = (value) => FREQUENCIES.find((f) => f.value === value)?.label ?? value;
 
 // Fechas (claves 'YYYY-MM-DD') en las que ocurre un movimiento dentro de [from, to].
+// Una repetición movida con «Cambiar fecha» (`moves`: {from, to}) aparece en su fecha nueva.
 export function occurrences(item, from, to) {
+  const base = baseOccurrences(item, from, to);
+  if (!item.moves?.length) return base;
+  const lo = toKey(from);
+  const hi = toKey(to);
+  const movedAway = new Set(item.moves.map((mv) => mv.from));
+  const movedHere = item.moves
+    .filter((mv) => mv.to >= lo && mv.to <= hi && baseOccurrences(item, parseKey(mv.from), parseKey(mv.from)).length > 0)
+    .map((mv) => mv.to);
+  return [...new Set([...base.filter((d) => !movedAway.has(d)), ...movedHere])].sort();
+}
+
+// ¿Ocurre el movimiento ese día?
+export const occursOn = (item, key) => occurrences(item, parseKey(key), parseKey(key)).length > 0;
+
+function baseOccurrences(item, from, to) {
   const start = parseKey(item.date);
   const end = item.until ? parseKey(item.until) : null;
 

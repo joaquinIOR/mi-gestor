@@ -18,7 +18,7 @@ const CORS = {
 
 const MESSAGES = {
   group: { title: 'Mi Gestor', body: 'Hay novedades en un grupo compartido.', tag: 'mi-gestor-grupo' },
-  reminder: { title: 'Mi Gestor', body: 'Tienes un pago o una cuenta por vencer. Abre Mi Gestor para ver el detalle.', tag: 'mi-gestor-recordatorio' },
+  reminder: { title: 'Mi Gestor', body: 'Tienes un pago por vencer o un movimiento por confirmar. Abre Mi Gestor para ver el detalle.', tag: 'mi-gestor-recordatorio' },
 };
 
 async function rpc(fn: string, body: Record<string, unknown> = {}) {

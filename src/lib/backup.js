@@ -4,7 +4,7 @@ import { blobToDataUrl } from './images';
 import { sanitizeGoals } from './goals';
 import { sanitizeGroups } from './shared';
 import { sanitizeSettings } from './settings';
-import { MAX_DOCUMENTS, sanitizeBudget, sanitizeCategories, sanitizeDocuments, sanitizeMovements, sanitizeNotes } from './validate';
+import { MAX_DOCUMENTS, sanitizeBudget, sanitizeCategories, sanitizeDocuments, sanitizeMovements, sanitizeNotes, sanitizeWallet } from './validate';
 
 const APP_ID = 'mi-gestor';
 const MAX_FILE_BYTES = 150 * 1024 * 1024;
@@ -82,6 +82,7 @@ export async function openBackup(json, password) {
     notes: sanitizeNotes(payload.notes),
     categories: sanitizeCategories(payload.categories),
     budget: sanitizeBudget(payload.budget),
+    wallet: sanitizeWallet(payload.wallet),
     groups: sanitizeGroups(payload.groups),
     goals: sanitizeGoals(payload.goals),
     documents: sanitizeDocuments(payload.documents),

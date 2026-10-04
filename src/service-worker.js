@@ -62,7 +62,7 @@ self.addEventListener('notificationclick', (event) => {
 // lograra enviar un aviso, no puede hacerlo pasar por Mi Gestor con un texto propio.
 const PUSH_TEXTS = {
   'mi-gestor-grupo': 'Hay novedades en un grupo compartido.',
-  'mi-gestor-recordatorio': 'Tienes un pago o una cuenta por vencer. Abre Mi Gestor para ver el detalle.',
+  'mi-gestor-recordatorio': 'Tienes un pago por vencer o un movimiento por confirmar. Abre Mi Gestor para ver el detalle.',
 };
 self.addEventListener('push', (event) => {
   let data = {};

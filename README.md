@@ -6,6 +6,7 @@ Funciona como una app instalada (icono propio, pantalla completa) y **sin conexi
 
 ## ✨ Funciones
 
+- **Tienes hoy (saldo real):** escribe una vez cuánto tienes y Mi Gestor suma y resta cada ingreso y gasto **cuando llega su fecha** (no antes), de un mes a otro. Debajo se ve lo que falta: «Por recibir +X · Por pagar −Y» y cómo terminaría el mes. El día en que algo programado debía llegar o cobrarse, Inicio pregunta **«¿Ya te llegó?» / «¿Ya se cobró?»**: mientras no respondas cuenta como ocurrido; «Todavía no» lo saca del saldo y vuelve a preguntar al día siguiente; «Cambiar fecha» lo mueve (en una repetición, solo esa vez). En los grupos cuenta lo que sale de tu bolsillo (lo que pagaste completo y los pagos entre integrantes). Puedes ajustar el saldo cuando quieras.
 - **Gastos e ingresos:** monto, tipo (Comida, Transporte, Sueldo… o tus propios tipos) y una descripción corta. Antes de guardar se muestra cómo quedará el monto («15,990» → $15.990), con botones **Hoy / Ayer**, **frecuentes** (lo que anotas seguido, con un toque) y **Duplicar**. Al guardar aparece una confirmación breve, y un borrado se puede **deshacer**.
 - **Repetición:** una vez, diario, semanal, mensual o **anual** (SOAP, permiso de circulación…), con fecha final opcional. Al cambiar o borrar una repetición puedes elegir **«desde esta fecha»** sin tocar los meses pasados.
 - **Compras en cuotas:** anota el total y el número de cuotas; cada mes aparece «Pago 3 de 12».
@@ -13,8 +14,8 @@ Funciona como una app instalada (icono propio, pantalla completa) y **sin conexi
 - **Movimientos:** busca por descripción, tipo, tarjeta o monto en todos los meses, sin importar tildes, con el total de los últimos 12 meses. Lo programado para más adelante en el mes se marca como «Programado».
 - **Resumen mensual:** balance, ingresos y gastos; **gráfico de los últimos 6 meses**, comparación de cada tipo de gasto con el mes anterior y botón **Exportar a Excel** (archivo CSV de los últimos 24 meses, **sin cifrar**: guárdalo con cuidado).
 - **Metas de ahorro:** por ejemplo «Vacaciones · $500.000 para diciembre». Registra aportes o retiros (y corrige uno mal escrito) y mira el progreso y cuánto necesitas ahorrar al mes para llegar a tiempo.
-- **«Ya lo pagué»:** en «Próximos recordatorios» marca un pago como hecho y deja de avisar ese mes.
-- **Barra de presupuesto:** define un tope mensual (por ejemplo, tu sueldo) y mira cuánto llevas gastado. Cada tipo de gasto suma un tramo con su color; toca un tramo para ver su monto y porcentaje. Cuando un gasto te hace **superar el presupuesto** aparece una alerta (y el teléfono vibra); opcionalmente también un aviso previo al 80 % o 90 %.
+- **«Ya lo pagué»:** en «Próximos recordatorios» marca un pago como hecho y deja de avisar ese mes (si lo pagaste antes de su fecha, ya sale de tu saldo).
+- **Barra de presupuesto:** define un tope mensual (por ejemplo, tu sueldo) y mira cuánto llevas gastado. Cada tipo de gasto suma un tramo con su color; lo programado para lo que queda del mes va aparte, en un tramo rayado. Toca un tramo para ver su monto y porcentaje. Cuando un gasto te hace **superar el presupuesto** aparece una alerta (y el teléfono vibra); opcionalmente también un aviso previo al 80 % o 90 %.
 - **Pagos de tarjeta:** desde el Calendario, registra el pago mensual de tus tarjetas (lista de tarjetas de crédito, débito y prepago habituales en Chile, o una propia) con su aviso. Solo se guarda el nombre de la tarjeta, nunca el número.
 - **Calendario:** puntos verdes (ingresos) y rojos (gastos) en cada día; toca un día para ver o agregar movimientos.
 - **Mis documentos:** fotos de carnet, tarjetas, licencia, pasaporte, seguro… con número oculto (•••• 1234), botón para copiarlo y aviso de vencimiento (también en Inicio y como notificación, 30 días antes).
@@ -28,7 +29,7 @@ Funciona como una app instalada (icono propio, pantalla completa) y **sin conexi
   - **Lista de compras compartida:** agrega, marca y borra productos (con «Deshacer»); «Registrar compra» toma lo que marcaste tú.
   - Si cambias de teléfono, al abrir la invitación puedes **retomar tu perfil** («¿Ya eras parte? Toca tu nombre») en vez de quedar dos veces. Se puede **quitar a un integrante** (tocando su nombre) y **salir** del grupo sin dejar «fantasmas».
   - Si dos teléfonos cambian lo mismo (por ejemplo, uno sin señal), gana el cambio más reciente y un borrado es definitivo.
-- **Avisos con la app cerrada (opcional):** recordatorios, cuentas de la casa y novedades del grupo llegan como notificación aunque la app esté cerrada. Los avisos son genéricos («Tienes un pago por vencer»): nunca muestran montos ni nombres.
+- **Avisos con la app cerrada (opcional):** recordatorios, preguntas del saldo («¿Ya te llegó?», a las 20:00), cuentas de la casa y novedades del grupo llegan como notificación aunque la app esté cerrada. Los avisos son genéricos («Tienes un pago por vencer o un movimiento por confirmar»): nunca muestran montos ni nombres.
 - **Temas de color:** Menta, Rosa pastel, Lavanda, Celeste pastel, Cielo, Durazno, Salvia, Coral, Índigo y Grafito, cada uno en modo claro y oscuro (contraste verificado).
 - **Ajustes:** moneda, tema de color, modo claro/oscuro, **tamaño de letra** (normal, grande, muy grande), renombrar o borrar tus tipos de gasto e ingreso, copia de seguridad **cifrada** (exportar/importar, con tus preferencias; al restaurar se muestra qué trae y de qué fecha es) y borrar datos.
 - **App instalada:** abre **sin conexión desde la primera visita**, avisa cuando hay una **versión nueva**, y el botón **Atrás** de Android cierra el panel abierto (si escribiste algo, pregunta antes de descartarlo) en vez de salir de la app.
@@ -54,7 +55,7 @@ npm test         # pruebas de extremo a extremo en un teléfono simulado (Playwr
 ```
 
 Las pruebas (`tests/e2e`) compilan la app, la abren en Chromium con tamaño de teléfono y revisan seguridad, cifrado,
-huella, presupuesto, alertas, temas, tarjetas, recuperación, resumen, metas, montos y fechas, datos y copias, uso sin
+huella, saldo real, presupuesto, alertas, temas, tarjetas, recuperación, resumen, metas, montos y fechas, datos y copias, uso sin
 conexión y botón Atrás, gastos en común (integrantes, conflictos, cuentas de la casa) y avisos. Las de gastos en
 común necesitan PostgreSQL y PostgREST, y la de avisos además Deno:
 `SYNC_PG_URI=postgres://… POSTGREST_BIN=/ruta/postgrest DENO_BIN=/ruta/deno npm test` (si faltan, se omiten).
@@ -83,7 +84,7 @@ Usan el mismo proyecto de Supabase. Lo prepara una sola vez quien creó el grupo
    En iPhone primero hay que instalar la app (Añadir a pantalla de inicio) y tener iOS 16.4 o posterior.
 
 Las claves de envío (VAPID) se crean solas la primera vez, y una tarea programada (`pg_cron`) revisa cada 10 minutos
-los recordatorios pendientes (llegan alrededor de las 9:00 del día del aviso).
+los recordatorios pendientes (llegan alrededor de las 9:00 del día del aviso; las preguntas del saldo, alrededor de las 20:00).
 
 Si ejecutaste una versión anterior de `push.sql` (antes de octubre de 2026), vuelve a ejecutarla: corrige un permiso que dejaba
 leer la configuración de avisos con la clave *publishable*. Por precaución, después renueva las claves de envío ejecutando en el

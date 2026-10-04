@@ -41,6 +41,8 @@ const stored = (m) => ({
   card: m.card ?? null,
   ...(m.paidDates?.length ? { paidDates: m.paidDates } : {}),
   ...(m.day ? { day: m.day } : {}),
+  ...(m.notYet?.length ? { notYet: m.notYet } : {}),
+  ...(m.moves?.length ? { moves: m.moves } : {}),
   createdAt: m.createdAt,
 });
 
@@ -126,6 +128,10 @@ export default function MovementForm({ initial, categories, currency, pushEnable
       card,
       ...(initial.paidDates?.length ? { paidDates: initial.paidDates } : {}),
       ...(initial.day && form.date === initial.date ? { day: initial.day } : {}),
+      // «Todavía no» y las fechas cambiadas siguen valiendo mientras no cambie la fecha ni la repetición.
+      ...(form.date === initial.date && form.frequency === initial.frequency
+        ? { ...(initial.notYet?.length ? { notYet: initial.notYet } : {}), ...(initial.moves?.length ? { moves: initial.moves } : {}) }
+        : {}),
       createdAt: initial.createdAt ?? Date.now(),
     };
     if (fromHere && scope === 'from') {

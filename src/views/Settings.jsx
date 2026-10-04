@@ -315,8 +315,8 @@ function PushSection({ enabled, groups, onEnable, onDisable }) {
     <>
       <p className="hint">
         {enabled
-          ? '✅ Activados en este teléfono: recibirás avisos de tus recordatorios, cuentas de la casa y novedades del grupo aunque la app esté cerrada.'
-          : 'Recibe avisos de recordatorios, cuentas de la casa y novedades del grupo aunque la app esté cerrada. Los avisos nunca muestran montos ni nombres.'}
+          ? '✅ Activados en este teléfono: recibirás avisos de tus recordatorios, lo que hay que confirmar del saldo, cuentas de la casa y novedades del grupo aunque la app esté cerrada.'
+          : 'Recibe avisos de recordatorios, de lo que hay que confirmar del saldo, de cuentas de la casa y novedades del grupo aunque la app esté cerrada. Los avisos nunca muestran montos ni nombres.'}
       </p>
       {!enabled && (
         <details className="push-setup">

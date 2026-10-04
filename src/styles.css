@@ -141,6 +141,36 @@ h1, h2, h3, p { margin: 0; }
 .split { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 .hero .split > div { background: var(--hero-chip); border-radius: 14px; padding: 10px 12px; display: flex; flex-direction: column; min-width: 0; }
 .split strong { font-size: 1.1rem; overflow-wrap: anywhere; }
+/* Saldo real: «Tienes hoy», lo que viene y cómo termina el mes */
+.hero-top { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.hero-edit {
+  display: inline-flex; align-items: center; gap: 4px; min-height: 36px; padding: 4px 10px; border: 0; border-radius: 10px;
+  background: var(--hero-chip); color: var(--hero-ink); font-size: 0.82rem; font-weight: 600;
+}
+.hero .big + .hero-line { margin-top: -8px; }
+.hero-line { font-size: 0.92rem; color: var(--hero-ink); line-height: 1.4; margin-bottom: 4px; overflow-wrap: anywhere; }
+.hero-line b { font-weight: 800; }
+.hero-line.soft { color: var(--hero-ink-soft); margin-bottom: 12px; }
+.hero-line:last-of-type:not(.soft) { margin-bottom: 12px; }
+.hero-cta {
+  display: flex; align-items: center; gap: 10px; width: 100%; margin-bottom: 12px; padding: 10px 12px; border: 0; border-radius: 14px;
+  background: var(--hero-chip); color: var(--hero-ink); text-align: left;
+}
+.hero-cta > span { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+.hero-cta small { color: var(--hero-ink-soft); font-size: 0.8rem; }
+.confirm-card { display: flex; flex-direction: column; gap: 8px; border-color: var(--primary); }
+.confirm-card .card-title { margin-bottom: 0; }
+.confirm-card > .btn { align-self: flex-start; }
+.confirm-row { padding-bottom: 8px; border-bottom: 1px solid var(--border); }
+.confirm-row:last-child { border-bottom: 0; padding-bottom: 0; }
+.confirm-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.confirm-q { width: 100%; font-size: 0.85rem; font-weight: 700; }
+.confirm-move { display: flex; flex-direction: column; gap: 8px; padding: 10px; border-radius: 12px; background: var(--surface-2); }
+.wallet-questions { display: flex; flex-direction: column; gap: 10px; }
+.wallet-question { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; border-radius: 14px; background: var(--surface-2); }
+.wallet-question .segmented { background: var(--surface); }
+.wallet-question .segmented button.on:not(.income):not(.expense) { background: var(--text); color: var(--surface); }
+
 .label { display: inline-flex; align-items: center; gap: 4px; font-size: 0.8rem; font-weight: 600; }
 .hero .label.income, .hero .label.expense { color: var(--hero-ink); }
 
@@ -390,6 +420,11 @@ textarea { resize: vertical; }
 .legend-amount { font-weight: 700; }
 .legend-pct { color: var(--muted); font-size: 0.85rem; text-align: right; }
 .dot-lg { width: 12px; height: 12px; border-radius: 4px; flex: none; display: inline-block; }
+/* Lo programado (aún no gastado): mismo tramo, rayado y más claro. */
+.budget-seg.planned, .dot-lg.planned {
+  background: repeating-linear-gradient(135deg, var(--cat-other) 0 3px, transparent 3px 7px);
+  box-shadow: inset 0 0 0 1.5px var(--cat-other);
+}
 @media (prefers-reduced-motion: reduce) { .budget-seg { transition: none; } }
 
 /* Alerta de presupuesto */

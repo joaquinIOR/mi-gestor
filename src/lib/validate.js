@@ -21,16 +21,24 @@ export function isDateKey(value) {
   return date.getFullYear() === y && date.getMonth() === m - 1 && date.getDate() === d;
 }
 
+const isMovementId = (v) => typeof v === 'string' && /^[\w-]{8,64}$/.test(v);
+
 export function sanitizeMovements(list) {
+  const ids = new Set();
   return asList(list).flatMap((m) => {
     if (!isObject(m)) return [];
     const amount = Number(m.amount);
     const category = text(m.category, 24).trim();
     if (!['income', 'expense'].includes(m.type) || !(amount > 0 && amount < MAX_AMOUNT) || !isDateKey(m.date) || !category) return [];
     const frequency = FREQUENCIES.includes(m.frequency) ? m.frequency : 'once';
+    // Se conserva el id (el saldo recuerda qué movimientos ya estaban en él), salvo que falte o se repita.
+    const id = isMovementId(m.id) && !ids.has(m.id) ? m.id : uid();
+    ids.add(id);
+    const notYet = asList(m.notYet).filter((n) => isObject(n) && isDateKey(n.date) && isDateKey(n.asked)).map((n) => ({ date: n.date, asked: n.asked }));
+    const moves = asList(m.moves).filter((mv) => isObject(mv) && isDateKey(mv.from) && isDateKey(mv.to) && mv.from !== mv.to).map((mv) => ({ from: mv.from, to: mv.to }));
     return [
       {
-        id: uid(),
+        id,
         type: m.type,
         amount: Math.round(amount * 100) / 100,
         category,
@@ -42,6 +50,8 @@ export function sanitizeMovements(list) {
         card: text(m.card, 40).trim() || null,
         ...(asList(m.paidDates).some(isDateKey) ? { paidDates: asList(m.paidDates).filter(isDateKey).slice(-24) } : {}),
         ...(Number.isInteger(m.day) && m.day >= 1 && m.day <= 31 ? { day: m.day } : {}),
+        ...(notYet.length ? { notYet: notYet.slice(-24) } : {}),
+        ...(moves.length && frequency !== 'once' ? { moves: moves.slice(-60) } : {}),
         createdAt: Number.isFinite(m.createdAt) ? m.createdAt : Date.now(),
       },
     ];
@@ -111,3 +121,18 @@ export const sanitizeBudget = (value) => {
   const amount = Number(value);
   return amount > 0 && amount < MAX_AMOUNT ? Math.round(amount * 100) / 100 : null;
 };
+
+// Saldo de «Tienes hoy» (puede ser negativo si la cuenta está sobregirada).
+export function sanitizeWallet(value) {
+  if (!isObject(value)) return null;
+  const amount = Number(value.amount);
+  if (!Number.isFinite(amount) || Math.abs(amount) >= MAX_AMOUNT || !isDateKey(value.date)) return null;
+  const keys = (list) => [...new Set(asList(list).filter((k) => typeof k === 'string' && k.length <= 200))].slice(0, 500);
+  return {
+    amount: Math.round(amount * 100) / 100,
+    date: value.date,
+    setAt: Number.isFinite(value.setAt) ? value.setAt : 0,
+    excluded: keys(value.excluded),
+    seen: keys(value.seen),
+  };
+}

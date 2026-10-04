@@ -7,12 +7,14 @@ import { frequencyLabel, installmentOf } from '../lib/recurrence';
 export default function MovementRow({ item, currency, onClick, showDate = false }) {
   const today = todayKey();
   // En las listas del mes, lo que aún no ocurre (por ejemplo, el sueldo del día 30) se marca como «Programado».
-  const future = !showDate && !!item.occurrence && item.occurrence > today && !item.bill;
+  const future = !showDate && !!item.occurrence && item.occurrence > today && !item.bill && !item.paidDates?.includes(item.occurrence);
+  // Respondiste «Todavía no»: no cuenta en tu saldo hasta que llegue (o se pague).
+  const waiting = !!item.occurrence && !!item.notYet?.some((n) => n.date === item.occurrence);
   const when = showDate ? `${relativeDay(item.occurrence)}${item.occurrence.slice(0, 4) !== today.slice(0, 4) ? ` ${item.occurrence.slice(0, 4)}` : ''}` : null;
   const installment = installmentOf(item);
   const sub = [item.card && item.description !== `Pago ${item.card}` ? item.card : null, item.description ? item.category : null, when].filter(Boolean);
   return (
-    <button type="button" className={`row${future ? ' future' : ''}`} onClick={onClick}>
+    <button type="button" className={`row${future || waiting ? ' future' : ''}`} onClick={onClick}>
       <span className={`row-icon ${item.type}`} aria-hidden="true">
         {categoryEmoji(item.category)}
       </span>
@@ -31,6 +33,7 @@ export default function MovementRow({ item, currency, onClick, showDate = false 
             </span>
           )}
           {future && <span className="badge">Programado</span>}
+          {waiting && <span className="badge">{item.type === 'income' ? 'Aún no llega' : 'Aún no se paga'}</span>}
           {installment ? (
             <span className="badge">
               <Repeat size={11} /> Pago {installment.k} de {installment.n}

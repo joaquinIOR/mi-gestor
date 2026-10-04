@@ -8,10 +8,11 @@ import { autoLockHeld, backgroundAllowed, endBackgroundAllowance, graceUntil } f
 import { reloadApp, useBackClose } from './lib/back';
 import { exportBackup } from './lib/backup';
 import { budgetAlert, monthSpent } from './lib/budget';
+import { confirmOccurrence, confirmTimes, moveOccurrence, postponeOccurrence, walletSnapshot } from './lib/cash';
 import { categoryList } from './lib/categories';
 import { formatMoney } from './lib/format';
 import { withPaid } from './lib/recurrence';
-import { todayKey } from './lib/dates';
+import { formatShort, todayKey } from './lib/dates';
 import { notifyDueReminders } from './lib/notify';
 import { backupDue, isInstalled, isIOS, requestPersistence, snoozeUntil } from './lib/persist';
 import { currentEndpoint, disablePush, enablePush, newDeviceTag, notifyGroup, pushSupported, registerGroups, reminderTimes, syncSchedule } from './lib/push';
@@ -54,6 +55,8 @@ export default function App({ session, settings, setSettings, quick, invite, onI
   const [budget, setBudget] = useState(session.state.budget ?? null);
   const [groups, setGroups] = useState(session.state.groups ?? []);
   const [goals, setGoals] = useState(session.state.goals ?? []);
+  // «Tienes hoy»: el saldo que escribiste y desde cuándo (la app suma y resta lo que pasa después).
+  const [wallet, setWallet] = useState(session.state.wallet ?? null);
   const [goalsOpen, setGoalsOpen] = useState(false);
   const [syncInfo, setSyncInfo] = useState({});
   const [toast, setToast] = useState(null);
@@ -147,9 +150,9 @@ export default function App({ session, settings, setSettings, quick, invite, onI
   );
   useEffect(() => {
     if (stale.current) return onLock({ quiet: true });
-    latestState.current = { movements, notes, categories, budget, groups, goals };
+    latestState.current = { movements, notes, categories, budget, groups, goals, wallet };
     persist();
-  }, [persist, onLock, movements, notes, categories, budget, groups, goals]);
+  }, [persist, onLock, movements, notes, categories, budget, groups, goals, wallet]);
   useEffect(() => {
     if (!saveError) return undefined;
     const timer = setInterval(persist, 5000);
@@ -299,7 +302,12 @@ export default function App({ session, settings, setSettings, quick, invite, onI
   useEffect(() => {
     if (!settings.pushEnabled || !settings.pushEndpoint || !groups.length) return;
     const timer = setTimeout(() => {
-      const times = reminderTimes([...withPaid(movements), ...billReminders(groups), ...docReminders]);
+      // Recordatorios (9:00) y lo que hay que confirmar (20:00 del día en que debía llegar o cobrarse).
+      const times = [
+        ...new Set([...reminderTimes([...withPaid(movements), ...billReminders(groups), ...docReminders]), ...confirmTimes({ movements, wallet, today: todayKey() })]),
+      ]
+        .sort()
+        .slice(0, 60);
       const key = JSON.stringify([settings.pushEndpoint, groups[0].server.url, times]);
       if (key === scheduleKey.current) return;
       syncSchedule(groups[0].server, settings.pushEndpoint, times)
@@ -309,7 +317,7 @@ export default function App({ session, settings, setSettings, quick, invite, onI
         .catch(() => {});
     }, 2000);
     return () => clearTimeout(timer);
-  }, [movements, groups, docReminders, settings.pushEnabled, settings.pushEndpoint]);
+  }, [movements, groups, docReminders, wallet, settings.pushEnabled, settings.pushEndpoint]);
   const saveSharedEntry = (groupId, entry) => {
     setGroups((gs) => gs.map((g) => (g.id === groupId ? upsertLocal(g, entry) : g)));
     if (entry.kind === 'expense') checkBudget(movements, budget, groups.map((g) => (g.id === groupId ? upsertLocal(g, entry) : g)));
@@ -418,9 +426,35 @@ export default function App({ session, settings, setSettings, quick, invite, onI
     setEditing(null);
     checkBudget(list);
   };
-  // «Ya lo pagué»: esa repetición deja de aparecer en los recordatorios.
-  const markPaid = (id, occurrence) =>
-    setMovements((list) => list.map((m) => (m.id === id ? { ...m, paidDates: [...new Set([...(m.paidDates ?? []), occurrence])].slice(-24) } : m)));
+  // «Ya lo pagué»: esa repetición deja de aparecer en los recordatorios (y, si fue antes de su fecha, ya sale del saldo).
+  const updateMovement = (id, change) => setMovements((list) => list.map((m) => (m.id === id ? change(m) : m)));
+  const markPaid = (id, occurrence) => updateMovement(id, (m) => confirmOccurrence(m, occurrence));
+  // Respuestas a «¿Ya te llegó?» / «¿Ya se cobró?».
+  const answerOccurrence = (item, answer, date) => {
+    const label = item.description || item.category;
+    if (answer === 'yes') {
+      updateMovement(item.id, (m) => confirmOccurrence(m, item.occurrence));
+      setToast({ text: `${item.type === 'income' ? 'Llegó' : 'Pagado'}: ${label}`, at: Date.now() });
+    } else if (answer === 'no') {
+      updateMovement(item.id, (m) => postponeOccurrence(m, item.occurrence, todayKey()));
+      setToast({ text: `No cuenta en tu saldo por ahora. Te pregunto de nuevo mañana.`, at: Date.now() });
+    } else {
+      updateMovement(item.id, (m) => moveOccurrence(m, item.occurrence, date));
+      setToast({ text: `${label}: ahora el ${formatShort(date)}`, at: Date.now() });
+    }
+  };
+  // Escribir el saldo: lo que marcaste como «Todavía no» queda fuera de ese monto y cuenta cuando llegue.
+  const saveWallet = (amount, answers) => {
+    const today = todayKey();
+    const next = movements.map((m) =>
+      answers
+        .filter((a) => a.id === m.id)
+        .reduce((acc, a) => (a.done ? confirmOccurrence(acc, a.occurrence) : postponeOccurrence(acc, a.occurrence, today)), m)
+    );
+    setMovements(next);
+    setWallet({ amount, date: today, setAt: Date.now(), ...walletSnapshot({ movements: next, groups, today }) });
+    setToast({ text: 'Saldo guardado', at: Date.now() });
+  };
   // Borrar se puede deshacer durante unos segundos.
   const deleteMovement = (id) => {
     const removed = movements.find((m) => m.id === id);
@@ -476,7 +510,7 @@ export default function App({ session, settings, setSettings, quick, invite, onI
   // Restaurar: todo se guarda en una sola operación (si algo falla, no cambia nada) y recién después se muestra.
   const [dataVersion, setDataVersion] = useState(0);
   const importData = async (data) => {
-    const next = { movements: data.movements, notes: data.notes, categories: data.categories, budget: data.budget, groups: data.groups, goals: data.goals };
+    const next = { movements: data.movements, notes: data.notes, categories: data.categories, budget: data.budget, groups: data.groups, goals: data.goals, wallet: data.wallet };
     await store.replaceAll(next, data.documents);
     setMovements(next.movements);
     setNotes(next.notes);
@@ -484,6 +518,7 @@ export default function App({ session, settings, setSettings, quick, invite, onI
     setBudget(next.budget);
     setGroups(next.groups);
     setGoals(next.goals);
+    setWallet(next.wallet);
     setSettings((s) => ({ ...DEFAULT_SETTINGS, ...s, ...data.settings, ...(data.createdAt ? { lastBackupAt: data.createdAt, backupSnoozeUntil: 0 } : {}) }));
     setDataVersion((v) => v + 1);
     loadDocMeta();
@@ -497,6 +532,7 @@ export default function App({ session, settings, setSettings, quick, invite, onI
     setBudget(null);
     setGroups([]);
     setGoals([]);
+    setWallet(null);
     setDataVersion((v) => v + 1);
     loadDocMeta();
   };
@@ -517,6 +553,10 @@ export default function App({ session, settings, setSettings, quick, invite, onI
         onAdd={setEditing}
         onEdit={setEditing}
         onMarkPaid={markPaid}
+        wallet={wallet}
+        onSaveWallet={saveWallet}
+        onClearWallet={() => setWallet(null)}
+        onAnswer={answerOccurrence}
         docReminders={docReminders}
         onNavigate={goTo}
       />
@@ -776,7 +816,7 @@ export default function App({ session, settings, setSettings, quick, invite, onI
           <Settings
             settings={settings}
             onChange={(patch) => setSettings((s) => ({ ...DEFAULT_SETTINGS, ...s, ...patch }))}
-            onExport={(password) => exportBackup(store, { movements, notes, categories, budget, groups, goals, settings: portableSettings(settings) }, password)}
+            onExport={(password) => exportBackup(store, { movements, notes, categories, budget, groups, goals, wallet, settings: portableSettings(settings) }, password)}
             onBackupSaved={() => setSettings((s) => ({ ...DEFAULT_SETTINGS, ...s, lastBackupAt: Date.now(), backupSnoozeUntil: 0 }))}
             currentCounts={{ movements: movements.length, notes: notes.length, documents: docMeta.length }}
             initialPanel={settingsPanel}
